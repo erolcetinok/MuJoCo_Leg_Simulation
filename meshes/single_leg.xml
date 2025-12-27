@@ -8,8 +8,8 @@
         <!-- STL paths relative to THIS XML file (meshes/) -->
         <mesh name="body_mesh"     file="../models/body.STL"/>
         <mesh name="shoulder_mesh" file="../models/shoulder.STL"/>
-<!--        <mesh name="thigh_mesh" file="../models/thigh.STL"/>-->
-<!--        <mesh name="foot_mesh"     file="../models/foot.STL"/>-->
+        <mesh name="thigh_mesh" file="../models/thigh.STL"/>
+        <mesh name="foot_mesh"     file="../models/foot.STL"/>
 
         <!-- simple grid texture -->
         <texture name="texgrid" type="2d" builtin="checker"
@@ -20,35 +20,43 @@
 
     <worldbody>
         <!-- ground grid + world axes -->
-        <geom name="ground" type="plane" size="5 5 0.1" material="grid" rgba="1 1 1 1"/>
+        <geom name="ground" type="plane" size="30 30 0.1" material="grid" rgba="1 1 1 1"/>
 
-        <site name="world_x" type="capsule" fromto="0 0 0  0.25 0 0" size="0.004" rgba="1 0 0 1"/>
-        <site name="world_y" type="capsule" fromto="0 0 0  0 0.25 0" size="0.004" rgba="0 1 0 1"/>
-        <site name="world_z" type="capsule" fromto="0 0 0  0 0 0.25" size="0.004" rgba="0 0 1 1"/>
+        <site name="world_x" type="capsule" fromto="0 0 0  3 0 0" size="0.05" rgba="1 0 0 1"/>
+        <site name="world_y" type="capsule" fromto="0 0 0  0 3 0" size="0.05" rgba="0 1 0 1"/>
+        <site name="world_z" type="capsule" fromto="0 0 0  0 0 3" size="0.05" rgba="0 0 1 1"/>
 
         <!-- BODY (fixed) -->
-        <body name="body" pos="0 0 0">
-            <geom type="mesh" mesh="body_mesh"/>
+        <body name="body" pos="-100 100 -21.4">
+            <geom type="mesh"
+                  mesh="body_mesh"
+                  quat="0.7071068 0.7071068 0 0"/>
 
             <!-- SHOULDER (origin at shoulder joint in your STL) -->
-            <body name="shoulder" pos="-5 0 85">
-                <joint name="shoulder_joint" type="hinge" axis="0 0 1" range="-1.57 1.57"/>
-                <geom type="mesh" mesh="shoulder_mesh"/>
+            <body name="shoulder" pos="79.75 -172 0">
+                <joint name="shoulder_joint" type="hinge" axis="0 0 1" limited="true" range="-1.57 1.57"/>
+                <geom type="mesh"
+                      mesh="shoulder_mesh"
+                      quat="0.7071068 0.7071068 0 0"/>
 
-                <!--
-                <body name="thigh" pos="0 0 0">
-                    <joint name="wing_joint" type="hinge" axis="0 1 0" range="-0.785 0.785"/>
-                    <geom type="mesh" mesh="thigh_mesh"/>
+                <body name="thigh" pos="0 -35.75 -13.1"> <!--0 -35.75 -0 -->
+                    <joint name="wing_joint"     type="hinge" axis="0 1 0" limited="true" range="-0.785 0.785"/>
+                    <geom type="mesh"
+                          mesh="thigh_mesh"
+                          quat="0.7071068 0.7071068 0 0"/>
 
-                    <body name="foot" pos="0 0 0">
-                        <joint name="knee_joint" type="hinge" axis="0 1 0" range="-2.094 0"/>
-                        <geom type="mesh" mesh="foot_mesh"/>
+                    <body name="foot" pos="0 -98 -98.75">
+                        <joint name="knee_joint"     type="hinge" axis="0 1 0" limited="true" range="-2.094 0"/>
+                        <geom type="mesh"
+                              mesh="foot_mesh"
+                              quat="0.7071068 0.7071068 0 0"/>
 
                         <site name="foot_site" pos="0 0 0" size="0.01" rgba="1 0 0 1"/>
                     </body>
                 </body>
-                -->
+
             </body>
         </body>
     </worldbody>
+
 </mujoco>
