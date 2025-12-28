@@ -1,7 +1,7 @@
 <mujoco model="single_leg">
     <compiler angle="radian"/>
 
-    <option gravity="0 0 -9.81"/>
+    <option gravity="0 0 -981"/>
 
     <asset>
         <mesh name="body_mesh"     file="../models/body.STL"/>
