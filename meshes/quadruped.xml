@@ -1,0 +1,264 @@
+<mujoco model="quadruped">
+    <compiler angle="radian"/>
+
+    <option gravity="0 0 -981"/>
+
+    <asset>
+        <mesh name="body_mesh"     file="../models/body.STL"/>
+        <mesh name="shoulder_mesh" file="../models/shoulder.STL"/>
+        <mesh name="thigh_mesh"    file="../models/thigh.STL"/>
+        <mesh name="foot_mesh"     file="../models/foot.STL"/>
+
+        <texture name="texgrid" type="2d" builtin="checker"
+                 rgb1="0.2 0.2 0.2" rgb2="0.85 0.85 0.85"
+                 width="512" height="512"/>
+        <material name="grid" texture="texgrid" texrepeat="10 10" reflectance="0.2"/>
+    </asset>
+
+    <worldbody>
+        <geom name="ground" type="plane" size="1000 1000 0.1" material="grid" rgba="1 1 1 1"/>
+
+        <site name="world_x" type="capsule" fromto="0 0 0  3 0 0" size="0.05" rgba="1 0 0 1"/>
+        <site name="world_y" type="capsule" fromto="0 0 0  0 3 0" size="0.05" rgba="0 1 0 1"/>
+        <site name="world_z" type="capsule" fromto="0 0 0  0 0 3" size="0.05" rgba="0 0 1 1"/>
+
+        <body name="stage" pos="0 0 133.35">
+
+            <!-- BODY: Geometric center at origin -->
+            <body name="body" pos="-100 100 -21.4">
+                <geom type="mesh"
+                      mesh="body_mesh"
+                      quat="0.7071068 0.7071068 0 0"/>
+
+                <!-- ============================================================
+                     FRONT LEFT LEG (FL) - FOR MANUAL POSITIONING
+                     
+                     Shoulder rotation in XY plane (around Z-axis):
+                     quat="w x y z" where w=cos(θ/2), z=sin(θ/2), x=y=0
+                     Default: quat="1 0 0 0" (no rotation)
+                     Example 45°: quat="0.9238795 0 0 0.3826834"
+                     Example 90°: quat="0.7071068 0 0 0.7071068"
+                     ============================================================ -->
+                <body name="shoulder_FL" pos="120.25 -28 0" quat="0 0 0 1">
+                    <!-- Visual indicators for joint positions -->
+                    <site name="shoulder_joint_FL_marker" pos="20.25 -15 0" size="2" rgba="1 1 0 1" type="sphere"/>
+                    <site name="shoulder_joint_FL_axis" type="cylinder" size="0.3" fromto="20.25 -15 -30 20.25 -15 30" rgba="1 1 0 0.5"/>
+                    
+                    <joint name="shoulder_joint_FL" type="hinge" axis="0 0 1" pos="20.25 -15 0"
+                           limited="true" range="-1.57079632679 1.57079632679"/>
+                    <geom type="mesh"
+                          mesh="shoulder_mesh"
+                          quat="0.7071068 0.7071068 0 0"/>
+
+                    <body name="thigh_FL" pos="0 -35.75 -13.1">
+                        <!-- Visual indicator for wing joint position -->
+                        <site name="wing_joint_FL_marker" pos="0 -2.5 34.5" size="2" rgba="0 1 1 1" type="sphere"/>
+                        <site name="wing_joint_FL_axis" type="cylinder" size="0.3" fromto="-30 -2.5 34.5 30 -2.5 34.5" rgba="0 1 1 0.5"/>
+                        
+                        <joint name="wing_joint_FL" type="hinge" axis="1 0 0" pos="0 -2.5 34.5"
+                               limited="true" range="-0.872664625997 0.872664625997"/>
+                        <geom type="mesh"
+                              mesh="thigh_mesh"
+                              quat="0.7071068 0.7071068 0 0"/>
+
+                        <body name="foot_FL" pos="0 -98 -98.75">
+                            <!-- Visual indicator for knee joint position -->
+                            <site name="knee_joint_FL_marker" pos="0 -12 110" size="2" rgba="1 0 1 1" type="sphere"/>
+                            <site name="knee_joint_FL_axis" type="cylinder" size="0.3" fromto="-30 -12 110 30 -12 110" rgba="1 0 1 0.5"/>
+                            
+                            <joint name="knee_joint_FL" type="hinge" axis="1 0 0" pos="0 -12 110"
+                                   limited="true" range="-2.00712863979 1.57079632679"/>
+                            <geom type="mesh"
+                                  mesh="foot_mesh"
+                                  quat="0.7071068 0.7071068 0 0"/>
+
+                            <site name="foot_site_FL" pos="21 -12 0" size="1" rgba="1 0 0 1"/>
+                        </body>
+                    </body>
+                </body>
+
+                <!-- ============================================================
+                     FRONT RIGHT LEG (FR)
+                     
+                     Shoulder rotation in XY plane (around Z-axis):
+                     quat="w x y z" where w=cos(θ/2), z=sin(θ/2), x=y=0
+                     Default: quat="1 0 0 0" (no rotation)
+                     ============================================================ -->
+                <body name="shoulder_FR" pos="172 -120.25 0" quat="0.7071068 0 0 0.7071068">
+                    <joint name="shoulder_joint_FR" type="hinge" axis="0 0 1" pos="20.25 -15 0"
+                           limited="true" range="-1.57079632679 1.57079632679"/>
+                    <geom type="mesh"
+                          mesh="shoulder_mesh"
+                          quat="0.7071068 0.7071068 0 0"/>
+
+                    <body name="thigh_FR" pos="0 -35.75 -13.1">
+                        <joint name="wing_joint_FR" type="hinge" axis="1 0 0" pos="0 -2.5 34.5"
+                               limited="true" range="-0.872664625997 0.872664625997"/>
+                        <geom type="mesh"
+                              mesh="thigh_mesh"
+                              quat="0.7071068 0.7071068 0 0"/>
+
+                        <body name="foot_FR" pos="0 -98 -98.75">
+                            <joint name="knee_joint_FR" type="hinge" axis="1 0 0" pos="0 -12 110"
+                                   limited="true" range="-2.00712863979 1.57079632679"/>
+                            <geom type="mesh"
+                                  mesh="foot_mesh"
+                                  quat="0.7071068 0.7071068 0 0"/>
+
+                            <site name="foot_site_FR" pos="21 -12 0" size="1" rgba="0 1 0 1"/>
+                        </body>
+                    </body>
+                </body>
+
+                <!-- ============================================================
+                     BACK LEFT LEG (BL) - Rotated 270° from original
+                     
+                     Shoulder rotation in XY plane (around Z-axis):
+                     quat="w x y z" where w=cos(θ/2), z=sin(θ/2), x=y=0
+                     Default: quat="1 0 0 0" (no rotation)
+                     Example 45°: quat="0.9238795 0 0 0.3826834"
+                     Example 90°: quat="0.7071068 0 0 0.7071068"
+                     ============================================================ -->
+                <body name="shoulder_BL" pos="28 -79.75 0" quat="-0.7071068  0 0 0.7071068">
+                    <!-- Visual indicators for joint positions -->
+                    <site name="shoulder_joint_BL_marker" pos="20.25 -15 0" size="2" rgba="1 1 0 1" type="sphere"/>
+                    <site name="shoulder_joint_BL_axis" type="cylinder" size="0.3" fromto="20.25 -15 -30 20.25 -15 30" rgba="1 1 0 0.5"/>
+                    
+                    
+                    <joint name="shoulder_joint_BL" type="hinge" axis="0 0 1" pos="20.25 -15 0"
+                           limited="true" range="-1.57079632679 1.57079632679"/>
+                    <geom type="mesh"
+                          mesh="shoulder_mesh"
+                          quat="0.7071068 0.7071068 0 0"/>
+
+
+
+                    <body name="thigh_BL" pos="0 -35.75 -13.1"> 
+                        <!-- Visual indicator for wing joint position -->
+                        <site name="wing_joint_BL_marker" pos="0 -2.5 34.5" size="2" rgba="0 1 1 1" type="sphere"/>
+                        <site name="wing_joint_BL_axis" type="cylinder" size="0.3" fromto="-30 -2.5 34.5 30 -2.5 34.5" rgba="0 1 1 0.5"/>
+                        
+                        <joint name="wing_joint_BL" type="hinge" axis="1 0 0" pos="0 -2.5 34.5"
+                               limited="true" range="-0.872664625997 0.872664625997"/>
+                        <geom type="mesh"
+                              mesh="thigh_mesh"
+                              quat="0.7071068 0.7071068 0 0"/>
+
+                        <body name="foot_BL" pos="0 -98 -98.75">
+                            <!-- Visual indicator for knee joint position -->
+                            <site name="knee_joint_BL_marker" pos="0 -12 110" size="2" rgba="1 0 1 1" type="sphere"/>
+                            <site name="knee_joint_BL_axis" type="cylinder" size="0.3" fromto="-30 -12 110 30 -12 110" rgba="1 0 1 0.5"/>
+                            
+                            <joint name="knee_joint_BL" type="hinge" axis="1 0 0" pos="0 -12 110"
+                                   limited="true" range="-2.00712863979 1.57079632679"/>
+                            <geom type="mesh"
+                                  mesh="foot_mesh"
+                                  quat="0.7071068 0.7071068 0 0"/>
+
+                            <site name="foot_site_BL" pos="21 -12 0" size="1" rgba="0 0 1 1"/>
+                        </body>
+                    </body>
+                </body>
+
+                <!-- ============================================================
+                     BACK RIGHT LEG (BR) - Original leg, faces negative Y direction
+                     
+                     Shoulder rotation in XY plane (around Z-axis):
+                     quat="w x y z" where w=cos(θ/2), z=sin(θ/2), x=y=0
+                     Default: quat="1 0 0 0" (no rotation)
+                     Example 45°: quat="0.9238795 0 0 0.3826834"
+                     Example 90°: quat="0.7071068 0 0 0.7071068"
+                     ============================================================ -->
+                <body name="shoulder_BR" pos="79.75 -172 0" quat="1 0 0 0">
+                    <!-- Visual indicators for joint positions -->
+                    <site name="shoulder_joint_BR_marker" pos="20.25 -15 0" size="2" rgba="1 1 0 1" type="sphere"/>
+                    <site name="shoulder_joint_BR_axis" type="cylinder" size="0.3" fromto="20.25 -15 -30 20.25 -15 30" rgba="1 1 0 0.5"/>
+                    
+                    <joint name="shoulder_joint_BR" type="hinge" axis="0 0 1" pos="20.25 -15 0"
+                           limited="true" range="-1.57079632679 1.57079632679"/>
+                    <geom type="mesh"
+                          mesh="shoulder_mesh"
+                          quat="0.7071068 0.7071068 0 0"/>
+
+                    <body name="thigh_BR" pos="0 -35.75 -13.1">
+                        <!-- Visual indicator for wing joint position -->
+                        <site name="wing_joint_BR_marker" pos="0 -2.5 34.5" size="2" rgba="0 1 1 1" type="sphere"/>
+                        <site name="wing_joint_BR_axis" type="cylinder" size="0.3" fromto="-30 -2.5 34.5 30 -2.5 34.5" rgba="0 1 1 0.5"/>
+                        
+                        <joint name="wing_joint_BR" type="hinge" axis="1 0 0" pos="0 -2.5 34.5"
+                               limited="true" range="-0.872664625997 0.872664625997"/>
+                        <geom type="mesh"
+                              mesh="thigh_mesh"
+                              quat="0.7071068 0.7071068 0 0"/>
+
+                        <body name="foot_BR" pos="0 -98 -98.75">
+                            <!-- Visual indicator for knee joint position -->
+                            <site name="knee_joint_BR_marker" pos="0 -12 110" size="2" rgba="1 0 1 1" type="sphere"/>
+                            <site name="knee_joint_BR_axis" type="cylinder" size="0.3" fromto="-30 -12 110 30 -12 110" rgba="1 0 1 0.5"/>
+                            
+                            <joint name="knee_joint_BR" type="hinge" axis="1 0 0" pos="0 -12 110"
+                                   limited="true" range="-2.00712863979 1.57079632679"/>
+                            <geom type="mesh"
+                                  mesh="foot_mesh"
+                                  quat="0.7071068 0.7071068 0 0"/>
+
+                            <site name="foot_site_BR" pos="21 -12 0" size="1" rgba="1 1 0 1"/>
+                        </body>
+                    </body>
+                </body>
+
+            </body>
+
+        </body>
+
+        <!-- IK targets for each leg (mocap bodies) -->
+        <body name="ik_target_FL" mocap="true" pos="0 0 150">
+            <site name="target_site_FL" pos="20 -175 -50" size="8" rgba="1 0.5 0 1"/>
+        </body>
+        <!-- Front Right leg IK target -->
+        <body name="ik_target_FR" mocap="true" pos="0 0 150">
+            <site name="target_site_FR" pos="20 175 -50" size="8" rgba="1 0.5 0 1"/>
+        </body>
+        <body name="ik_target_BL" mocap="true" pos="0 0 150">
+            <site name="target_site_BL" pos="-20 -175 -50" size="8" rgba="1 0.5 0 1"/>
+        </body>
+        <body name="ik_target_BR" mocap="true" pos="0 0 150">
+            <site name="target_site_BR" pos="-20 175 -50" size="8" rgba="1 0.5 0 1"/>
+        </body>
+    </worldbody>
+
+    <actuator>
+        <!-- Front Left Leg Actuators -->
+        <position name="shoulder_actuator_FL" joint="shoulder_joint_FL" kp="80"
+                  ctrlrange="-1.57079632679 1.57079632679"/>
+        <position name="wing_actuator_FL" joint="wing_joint_FL" kp="60"
+                  ctrlrange="-0.872664625997 0.872664625997"/>
+        <position name="knee_actuator_FL" joint="knee_joint_FL" kp="80"
+                  ctrlrange="-0.872664625997 1.3962634016"/>
+
+        <!-- Front Right Leg Actuators -->
+        <position name="shoulder_actuator_FR" joint="shoulder_joint_FR" kp="80"
+                  ctrlrange="-1.57079632679 1.57079632679"/>
+        <position name="wing_actuator_FR" joint="wing_joint_FR" kp="60"
+                  ctrlrange="-0.872664625997 0.872664625997"/>
+        <position name="knee_actuator_FR" joint="knee_joint_FR" kp="80"
+                  ctrlrange="-0.872664625997 1.3962634016"/>
+
+        <!-- Back Left Leg Actuators -->
+        <position name="shoulder_actuator_BL" joint="shoulder_joint_BL" kp="80"
+                  ctrlrange="-1.57079632679 1.57079632679"/>
+        <position name="wing_actuator_BL" joint="wing_joint_BL" kp="60"
+                  ctrlrange="-0.872664625997 0.872664625997"/>
+        <position name="knee_actuator_BL" joint="knee_joint_BL" kp="80"
+                  ctrlrange="-0.872664625997 1.3962634016"/>
+
+        <!-- Back Right Leg Actuators -->
+        <position name="shoulder_actuator_BR" joint="shoulder_joint_BR" kp="80"
+                  ctrlrange="-1.57079632679 1.57079632679"/>
+        <position name="wing_actuator_BR" joint="wing_joint_BR" kp="60"
+                  ctrlrange="-0.872664625997 0.872664625997"/>
+        <position name="knee_actuator_BR" joint="knee_joint_BR" kp="80"
+                  ctrlrange="-0.872664625997 1.3962634016"/>
+    </actuator>
+</mujoco>
+

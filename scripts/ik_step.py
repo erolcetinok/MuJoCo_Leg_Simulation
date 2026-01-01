@@ -121,11 +121,11 @@ t = 0.0    # Current time (seconds) - tracks how long simulation has run
 target_center = np.array([0.0, 0.0, 150.0])
 
 # Choose the path type: "lissajous" (smooth 3D curve) or "step" (walking-like)
-PATH = "lissajous"   # "lissajous" or "step"
+PATH = "step"   # "lissajous" or "step"
 
 # --- 3D Lissajous: smooth motion in X,Y,Z ---
 # Creates a smooth 3D figure-8 pattern by combining sine waves
-amp_xyz = np.array([30.0, 20.0, 15.0])   # X, Y, Z amplitudes (how far it moves in each direction)
+amp_xyz = np.array([30.0, 0.0, 0.0])   # X, Y, Z amplitudes (how far it moves in each direction)
 freq_xyz = np.array([0.55, 0.37, 0.73])  # Different frequencies for 3D motion (creates complex pattern)
 phase_xyz = np.array([0.0, np.pi/3, np.pi/6])  # Phase offsets (starts at different points in the cycle)
 
@@ -133,7 +133,7 @@ phase_xyz = np.array([0.0, np.pi/3, np.pi/6])  # Phase offsets (starts at differ
 # Creates a walking-like motion: elliptical path in X-Y plane with lifting in Z
 step_freq = 0.6        # How fast the step cycle repeats (Hz)
 step_amp_x = 35.0      # Forward/backward motion amplitude
-step_amp_y = 15.0      # Side-to-side motion amplitude
+step_amp_y = 15.0      # Side-to-side motion amplitude, 15
 lift_amp_z = 25.0      # Up/down "lift" amplitude (how high the foot lifts)
 
 # ============================================================================

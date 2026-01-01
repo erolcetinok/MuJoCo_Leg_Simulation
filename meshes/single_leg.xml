@@ -22,7 +22,7 @@
         <site name="world_y" type="capsule" fromto="0 0 0  0 3 0" size="0.05" rgba="0 1 0 1"/>
         <site name="world_z" type="capsule" fromto="0 0 0  0 0 3" size="0.05" rgba="0 0 1 1"/>
 
-        <body name="stage" pos="0 0 150">
+        <body name="stage" pos="0 0 133.35">
 
             <body name="body" pos="-100 100 -21.4">
                 <geom type="mesh"
