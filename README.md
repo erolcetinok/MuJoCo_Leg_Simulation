@@ -20,7 +20,7 @@ This repository is used to:
 - Single leg and full quadruped MuJoCo models
 - Damped least squares IK
 - Parametric walk and trot gait
-- Millimeter-scale geometry
+- Millimeter scale geometry
 
 ---
 
