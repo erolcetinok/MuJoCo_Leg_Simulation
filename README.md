@@ -1,6 +1,6 @@
-# MuJoCo Quadrued Simulation
+# MuJoCo Quadruped Simulation
 
-MuJoCo kinematic modeling and inverse kinematics practice for a **3 DoF quadruped robot**, practice for later physical implementation with dynamixel actuators.
+MuJoCo kinematic modeling and inverse kinematics practice for a **3 DoF quadruped robot**, practice for later physical implementation with Dynamixel actuators.
 
 ---
 
