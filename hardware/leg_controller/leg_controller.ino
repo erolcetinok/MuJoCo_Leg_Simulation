@@ -25,9 +25,9 @@ using namespace ControlTableItem;
 
 #define ID_SHOULDER 1
 #define ID_WING     2
-#define ID_KNEE    3
+#define ID_KNEE 3
 
-// joint order is shoulder, wing, knee
+// joint order: shoulder, wing, knee
 // the limits in radians are the same as in the mujoco model
 const float LIMIT_SHOULDER[2] = { -1.57079632679f, 1.57079632679f };
 const float LIMIT_WING[2]     = { -0.872664625997f, 0.872664625997f };
@@ -35,8 +35,8 @@ const float LIMIT_KNEE[2]     = { -2.00712863979f, 1.57079632679f };
 
 void setup() {
   CMD_SERIAL.begin(SERIAL_BAUD);
-  while (!CMD_SERIAL) { ; }
-  CMD_SERIAL.println("the controler is ready please send joint angles");
+  while (!CMD_SERIAL) {;}
+  CMD_SERIAL.println("the controller is ready please send joint angles");
 
   dxl.begin(DXL_BAUD);
   dxl.setPortProtocolVersion(DXL_PROTOCOL_VERSION);
