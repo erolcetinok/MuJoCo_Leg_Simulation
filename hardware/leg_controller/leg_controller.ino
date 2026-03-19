@@ -25,7 +25,7 @@ using namespace ControlTableItem;
 
 #define ID_SHOULDER 1
 #define ID_WING     2
-#define ID_KNEE 3
+#define ID_KNEE     3
 
 // joint order: shoulder, wing, knee
 // the limits in radians are the same as in the mujoco model
@@ -33,10 +33,14 @@ const float LIMIT_SHOULDER[2] = { -1.57079632679f, 1.57079632679f };
 const float LIMIT_WING[2]     = { -0.872664625997f, 0.872664625997f };
 const float LIMIT_KNEE[2]     = { -2.00712863979f, 1.57079632679f };
 
+void processLine(char* line);
+
 void setup() {
   CMD_SERIAL.begin(SERIAL_BAUD);
+#if defined(ARDUINO_AVR_MEGA2560)
   while (!CMD_SERIAL) {;}
-  CMD_SERIAL.println("the controller is ready please send joint angles");
+#endif
+  CMD_SERIAL.println("the controller is ready");
 
   dxl.begin(DXL_BAUD);
   dxl.setPortProtocolVersion(DXL_PROTOCOL_VERSION);
@@ -50,9 +54,10 @@ void setup() {
     dxl.torqueOff(id);
     dxl.setOperatingMode(id, OP_POSITION);
     dxl.torqueOn(id);
-    dxl.writeControlTableItem(PROFILE_VELOCITY, id, 50);
+    dxl.writeControlTableItem(PROFILE_VELOCITY, id, 40);
   }
-  CMD_SERIAL.println("dynamixels ready.");
+  CMD_SERIAL.println("dynamixels ready");
+  CMD_SERIAL.println("mode: usb command (q,q1,q2,q3)");
 }
 
 void loop() {
