@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""
-Send three joint angles (radians) to the leg controller over USB serial.
+# send three joint angles to the leg controller over USB serial
+# order: shoulder, wing, knee (same as MuJoCo single_leg.xml)
+# requires: pyserial  (pip install pyserial)
+# Usage:
+# python send_angles.py <q1> <q2> <q3>   [--port PORT]
+# python send_angles.py 0.0 0.0 0.0
+# python send_angles.py 0.1 -0.2 0.5 --port /dev/cu.usbmodem14101
+import argparse
+import sys
 
-Usage:
-  python send_angles.py <q1> <q2> <q3>   [--port PORT]
-  python send_angles.py 0.0 0.0 0.0
-  python send_angles.py 0.1 -0.2 0.5 --port /dev/cu.usbmodem14101
-
-Order: shoulder, wing, knee (same as MuJoCo single_leg.xml).
-Requires: pyserial  (pip install pyserial)
-"""
+try:
+    import serial
+except ImportError:
+    print("Need pyserial: pip install pyserial", file=sys.stderr)
+    sys.exit(1)
 
 import argparse
 import sys
@@ -22,7 +26,7 @@ except ImportError:
 
 
 def send_angles(port: str, q1: float, q2: float, q3: float, baud: int = 115200) -> None:
-    """Open serial port, send one line 'q,q1,q2,q3', read one reply line, close."""
+    # Open serial port, send one line 'q,q1,q2,q3', read one reply line, close
     with serial.Serial(port, baud, timeout=2.0) as ser:
         line = f"q,{q1},{q2},{q3}\n"
         ser.write(line.encode("ascii"))
