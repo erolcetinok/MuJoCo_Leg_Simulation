@@ -4,7 +4,7 @@ Send three joint angles (radians) from your Mac to an Arduino that drives three 
 
 ## Hardware
 
-- **Arduino:** Uno or **Mega (recommended)**. Mega has two serial ports: Serial = USB (Mac), Serial1 = Dynamixel shield.
+- **Arduino:** **Arduino UNO Q** (recommended) or **Mega 2560**. Both use two UARTs: `Serial` = USB to your Mac for angle commands, `Serial1` = Dynamixel shield on **D0/D1**. The UNO Q MCU runs at **3.3 V** logic on the headers; confirm your servo model and shield are compatible (many Dynamixels use 5 V TTL—level shifting or a 3.3 V–tolerant bus may be required).
 - **Shield:** Dynamixel Shield 2.0 (or compatible) for Arduino.
 - **Servos:** Three Dynamixels, daisy-chained. Set IDs to **1** (shoulder), **2** (wing), **3** (knee). Protocol 2.0, baud **1000000** (1 Mbps) in the sketch.
 - **Leg:** Same 3-DoF layout as in `meshes/single_leg.xml`.
@@ -13,11 +13,11 @@ Send three joint angles (radians) from your Mac to an Arduino that drives three 
 
 1. Install **Dynamixel2Arduino** in Arduino IDE: **Sketch → Include Library → Manage Libraries** → search “Dynamixel2Arduino” → Install.
 2. Open `hardware/leg_controller/leg_controller.ino`.
-3. **Board:** Arduino Mega 2560 (or Uno; see note below).
+3. **Board:** **Arduino UNO Q** (install the **Arduino UNO Q** / Zephyr board package in the Boards Manager if prompted), or **Arduino Mega 2560** for the same UART layout.
 4. **Port:** Select the USB port (e.g. `/dev/cu.usbmodem…` on Mac).
-5. Upload. Open **Serial Monitor** at **115200**; you should see “leg_controller ready…” and “Dynamixels ready.” if all three IDs are found.
+5. Upload. Open **Serial Monitor** at **115200**; you should see “the controller is ready” and “dynamixels ready” if all three IDs are found.
 
-**Uno note:** On Uno the shield uses the same Serial as USB, so you can’t easily have Mac commands and Dynamixel on the same board. Use Mega, or use Uno only with the Serial Monitor (no Python script) to test the leg.
+**Other boards:** Classic **Arduino Uno (AVR)** shares one hardware UART between USB and the shield pins, so you cannot run this sketch’s Python-over-USB workflow and the Dynamixel bus at the same time without extra wiring or code changes. Prefer UNO Q or Mega.
 
 ## Finding the port on Mac
 

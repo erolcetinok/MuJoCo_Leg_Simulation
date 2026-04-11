@@ -1,23 +1,25 @@
 // reads the joint angles over usb serial and drives the 3 dynamixels
 // protocol for using the program q,<q1>,<q2>,<q3>:
 // angles in radians. order shoulder (0), wing (1), knee (2)
-// install Dynamixel2Arduino library. mega: Serial1 = shield, Serial = usb (mac)
+// install Dynamixel2Arduino library.
+// Primary: Arduino UNO Q — Serial = USB (host), Serial1 = Dynamixel shield (D0/D1).
+// Alternate: Mega 2560 — same split (Serial1 = shield, Serial = USB).
 
 #define SERIAL_BAUD 115200
 #define MAX_LINE 64
 
-#if defined(ARDUINO_AVR_MEGA2560)
-  #define DXL_SERIAL Serial1
-  #define CMD_SERIAL Serial
-  #define DXL_DIR_PIN 2
+#if defined(ARDUINO_AVR_MEGA2560) || defined(ARDUINO_UNO_Q)
+  #define DXL_SERIAL Serial1 // hardware UART for the dynamixel shield
+  #define CMD_SERIAL Serial // traffic to and from computer
+  #define DXL_DIR_PIN 2 // used by Dynamixel2Arduino library to set the direction of the motor
 #else
   #define DXL_SERIAL Serial
   #define CMD_SERIAL Serial
   #define DXL_DIR_PIN 2
 #endif
 
-#define DXL_BAUD 1000000
-#define DXL_PROTOCOL_VERSION 2.0f
+#define DXL_BAUD 1000000 // baud rate for the dynamixel shield
+#define DXL_PROTOCOL_VERSION 2.0f // which robotis robotocl to usewhat
 
 #include <Dynamixel2Arduino.h>
 Dynamixel2Arduino dxl(DXL_SERIAL, DXL_DIR_PIN);
@@ -37,7 +39,7 @@ void processLine(char* line);
 
 void setup() {
   CMD_SERIAL.begin(SERIAL_BAUD);
-#if defined(ARDUINO_AVR_MEGA2560)
+#if defined(ARDUINO_AVR_MEGA2560) || defined(ARDUINO_UNO_Q)
   while (!CMD_SERIAL) {;}
 #endif
   CMD_SERIAL.println("the controller is ready");
