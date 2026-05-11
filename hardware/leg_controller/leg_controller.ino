@@ -1,36 +1,43 @@
-// reads the joint angles over usb serial and drives the 3 dynamixels
-// protocol for using the program q,<q1>,<q2>,<q3>:
-// angles in radians. order shoulder (0), wing (1), knee (2)
-// install Dynamixel2Arduino library.
-// Primary: Arduino UNO Q — Serial = USB (host), Serial1 = Dynamixel shield (D0/D1).
-// Alternate: Mega 2560 — same split (Serial1 = shield, Serial = USB).
+// Reads joint angles over the USB-to-TTL adapter and drives the 3 dynamixels.
+// Protocol: q,<q1>,<q2>,<q3>  (radians, order: shoulder, wing, knee)
+//
+// Hardware:
+//   - Arduino UNO R3 + ROBOTIS Dynamixel Shield + 3× XL430-W250-T motors
+//   - CP2102 / CH340 / FTDI USB-to-TTL adapter wired:
+//       adapter TX → Arduino D7   (Arduino's SoftwareSerial RX)
+//       adapter RX → Arduino D8   (Arduino's SoftwareSerial TX)
+//       adapter GND → Arduino GND
+//   - Adapter's VCC stays disconnected (Arduino is powered via its own USB).
+//
+// Two USB connections at runtime:
+//   - Arduino USB-B (/dev/cu.usbmodem*)  → flash only; do not use for comms.
+//   - Adapter USB    (/dev/cu.usbserial* or /dev/cu.SLAB_USBtoUART)  → host
+//                                                                     I/O at
+//                                                                     115200.
+//
+// UART switch on the shield:
+//   - Upload position → flashing the sketch.
+//   - DYNAMIXEL position → runtime (shield uses the hardware UART for the
+//     DXL bus).
 
-#define SERIAL_BAUD 115200
-#define MAX_LINE 64
-
-#if defined(ARDUINO_AVR_MEGA2560) || defined(ARDUINO_UNO_Q)
-  #define DXL_SERIAL Serial1 // hardware UART for the dynamixel shield
-  #define CMD_SERIAL Serial // traffic to and from computer
-  #define DXL_DIR_PIN 2 // used by Dynamixel2Arduino library to set the direction of the motor
-#else
-  #define DXL_SERIAL Serial
-  #define CMD_SERIAL Serial
-  #define DXL_DIR_PIN 2
-#endif
-
-#define DXL_BAUD 1000000 // baud rate for the dynamixel shield
-#define DXL_PROTOCOL_VERSION 2.0f // which robotis robotocl to usewhat
-
+#include <SoftwareSerial.h>
 #include <Dynamixel2Arduino.h>
-Dynamixel2Arduino dxl(DXL_SERIAL, DXL_DIR_PIN);
+
+#define DXL_BAUD 115200
+#define HOST_BAUD 115200
+#define MAX_LINE 64
+#define DXL_PROTOCOL_VERSION 2.0f
+#define DXL_DIR_PIN 2
+
+SoftwareSerial cmd(7, 8);  // RX=D7 ← adapter TX, TX=D8 → adapter RX
+
+Dynamixel2Arduino dxl(Serial, DXL_DIR_PIN);
 using namespace ControlTableItem;
 
 #define ID_SHOULDER 1
 #define ID_WING     2
 #define ID_KNEE     3
 
-// joint order: shoulder, wing, knee
-// the limits in radians are the same as in the mujoco model
 const float LIMIT_SHOULDER[2] = { -1.57079632679f, 1.57079632679f };
 const float LIMIT_WING[2]     = { -0.872664625997f, 0.872664625997f };
 const float LIMIT_KNEE[2]     = { -2.00712863979f, 1.57079632679f };
@@ -38,19 +45,15 @@ const float LIMIT_KNEE[2]     = { -2.00712863979f, 1.57079632679f };
 void processLine(char* line);
 
 void setup() {
-  CMD_SERIAL.begin(SERIAL_BAUD);
-#if defined(ARDUINO_AVR_MEGA2560) || defined(ARDUINO_UNO_Q)
-  while (!CMD_SERIAL) {;}
-#endif
-  CMD_SERIAL.println("the controller is ready");
-
+  cmd.begin(HOST_BAUD);
   dxl.begin(DXL_BAUD);
   dxl.setPortProtocolVersion(DXL_PROTOCOL_VERSION);
+  cmd.println("the controller is ready");
 
   for (int id = ID_SHOULDER; id <= ID_KNEE; id++) {
     if (!dxl.ping(id)) {
-      CMD_SERIAL.print("? no servo ID ");
-      CMD_SERIAL.println(id);
+      cmd.print("? no servo ID ");
+      cmd.println(id);
       continue;
     }
     dxl.torqueOff(id);
@@ -58,17 +61,16 @@ void setup() {
     dxl.torqueOn(id);
     dxl.writeControlTableItem(PROFILE_VELOCITY, id, 40);
   }
-  CMD_SERIAL.println("dynamixels ready");
-  CMD_SERIAL.println("mode: usb command (q,q1,q2,q3)");
+  cmd.println("dynamixels ready");
+  cmd.println("mode: usb command (q,q1,q2,q3)");
 }
 
 void loop() {
   static char line[MAX_LINE];
   static int len = 0;
 
-  // read one line from the serial port
-  while (CMD_SERIAL.available() && len < MAX_LINE - 1) {
-    char c = CMD_SERIAL.read();
+  while (cmd.available() && len < MAX_LINE - 1) {
+    char c = cmd.read();
     if (c == '\n' || c == '\r') {
       line[len] = '\0';
       if (len > 0) {
@@ -84,15 +86,13 @@ void loop() {
   }
 }
 
-// parse the three angles from the line then write to dynamixels in degrees
 void processLine(char* line) {
   float q1, q2, q3;
   if (sscanf(line, "q,%f,%f,%f", &q1, &q2, &q3) != 3) {
-    CMD_SERIAL.println("? bad format; use q,q1,q2,q3");
+    cmd.println("? bad format; use q,q1,q2,q3");
     return;
   }
 
-  // clamp sim limits
   q1 = constrain(q1, LIMIT_SHOULDER[0], LIMIT_SHOULDER[1]);
   q2 = constrain(q2, LIMIT_WING[0],     LIMIT_WING[1]);
   q3 = constrain(q3, LIMIT_KNEE[0],     LIMIT_KNEE[1]);
@@ -105,11 +105,10 @@ void processLine(char* line) {
   dxl.setGoalPosition(ID_WING,     d2, UNIT_DEGREE);
   dxl.setGoalPosition(ID_KNEE,    d3, UNIT_DEGREE);
 
-  // echo back to see what the arduino received
-  CMD_SERIAL.print("ok ");
-  CMD_SERIAL.print(q1);
-  CMD_SERIAL.print(" ");
-  CMD_SERIAL.print(q2);
-  CMD_SERIAL.print(" ");
-  CMD_SERIAL.println(q3);
+  cmd.print("ok ");
+  cmd.print(q1);
+  cmd.print(" ");
+  cmd.print(q2);
+  cmd.print(" ");
+  cmd.println(q3);
 }
