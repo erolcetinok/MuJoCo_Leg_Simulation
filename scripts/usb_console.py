@@ -48,8 +48,8 @@ def main() -> None:
     parser.add_argument(
         "--baud", "-b",
         type=int,
-        default=115200,
-        help="Baud rate (default 115200, same as leg_controller USB serial)",
+        default=57600,
+        help="Baud rate (default 57600, same as leg_controller HOST_BAUD)",
     )
     args = parser.parse_args()
 

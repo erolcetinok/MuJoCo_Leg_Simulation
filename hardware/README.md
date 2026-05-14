@@ -44,16 +44,16 @@ Each motor must end up at **ID 1 / 2 / 3**, **baud 115 200**, **Protocol 2.0**. 
 
 **You need the shield powered and wired first** — do section 4, then come back here before uploading `leg_controller.ino`.
 
-Use the repo-local helper sketch `hardware/tools/configure_motor/configure_motor.ino`. It probes the motor across 57 600 / 115 200 / 1 000 000, sets it to your target ID, then changes its baud to 115 200 — all in one upload. Output prints to the adapter's terminal at 115 200.
+Use the repo-local helper sketch `hardware/configure_motor/configure_motor.ino`. It probes the motor across 57 600 / 115 200 / 1 000 000, sets it to your target ID, then changes its baud to 115 200 — all in one upload. Output prints to the adapter's terminal at **57 600** (host link baud — see §5).
 
 Procedure — repeat three times:
 
 1. **Disconnect all motors except the one you're configuring.** Plug only motor #1 (or #2 or #3 — they're all identical at this point) into the shield's TTL jack.
-2. Open `hardware/tools/configure_motor/configure_motor.ino`.
+2. Open `hardware/configure_motor/configure_motor.ino`.
 3. Edit `#define SOURCE_ID` (match the motor's current ID, or 1 for factory-fresh) and `#define TARGET_ID` — **1** for shoulder, **2** for wing, **3** for knee.
 4. Set UART switch to **Upload**, click **Upload** in the IDE.
 5. Flip UART switch to **DYNAMIXEL**, press **RESET**, wait ~3 seconds.
-6. Open a terminal on the adapter's port at **115200** baud (`python scripts/usb_console.py` does this, or any terminal of your choice). You should see `OK: motor at ID <n>, baud 115200`.
+6. Open a terminal on the adapter's port at **57600** baud (`python scripts/usb_console.py` does this, or any terminal of your choice). You should see `OK: motor at ID <n>, baud 115200` — the 115200 here is the *motor's* baud, which is independent of the host link.
 7. Unplug that motor, plug in the next one, change `TARGET_ID`, repeat from step 4.
 
 If you see `FAIL: no motor at ID <n> (tried baud 57600, 115200, 1000000)`, the motor is at an unexpected baud (run `find_motor.ino`), or power/cable/switch isn't right. If you see `FAIL: setID` or `FAIL: setBaudrate`, power-cycle the motor and try again — partial configuration is normal and the sketch handles it.
@@ -97,10 +97,13 @@ UNO R3 has one hardware UART (`Serial` on D0/D1). The Dynamixel Shield uses thos
 
 That's why host comms go through `SoftwareSerial(7, 8)` and the USB-to-TTL adapter on D7/D8. The adapter exposes its own `/dev/cu.usbserial*` (or `/dev/cu.SLAB_USBtoUART`) port on your Mac, and that's the port your terminal, `send_angles.py`, and `jog.py` talk to. The Arduino's onboard USB-B (`/dev/cu.usbmodem*`) is used only for flashing.
 
+**Host link runs at 57 600 baud.** All sketches and Python scripts default to this. `SoftwareSerial` on a 16 MHz AVR is too unreliable at 115 200 in practice — bytes get dropped or corrupted, especially on the Mac→Arduino direction. 57 600 is the documented fallback and works cleanly. The DXL bus on hardware Serial stays at 115 200, independent of the host link.
+
 What this means in practice:
 - The shield's **UART switch sits on DYNAMIXEL** during normal operation. Only flip to Upload for flashing.
 - **Do not try to talk to the Arduino via its onboard USB monitor at runtime.** It's wired into the same UART the shield uses, so anything you type there gets blocked by the shield's transceiver. The adapter is the only host-comm path.
-- `SoftwareSerial` is bit-banged at 115 200, which is at the upper end of its reliability range on a 16 MHz AVR. For sustained high-rate streaming (e.g. closed-loop control at >100 Hz), this would be marginal — but for interactive jogging and one-shot Python commands it's fine.
+- `SoftwareSerial` occasionally still injects phantom noise bytes before a real line begins; `leg_controller.ino`'s loop discards anything before the `q,` prefix to defend against this.
+- `sscanf("%f", ...)` is **not linked** in the default Arduino AVR build — `leg_controller.ino` parses floats with `strtod` instead. Don't switch back to `sscanf %f`; it'll silently fail.
 
 ---
 
@@ -120,7 +123,7 @@ What this means in practice:
 
 ## 7. Verify the controller is alive
 
-Open a terminal on the **adapter's** port at **115200** baud. The easiest way:
+Open a terminal on the **adapter's** port at **57600** baud. The easiest way:
 
 ```bash
 python scripts/usb_console.py --port /dev/cu.usbserial-XXXX
@@ -138,7 +141,7 @@ mode: usb command (q,q1,q2,q3)
 
 Then send `q,0.0,0.0,0.0` + Enter (line ending Newline). Reply should be `ok 0.00 0.00 0.00` and the leg snaps to the zero pose.
 
-**If the terminal is blank or shows nothing:** baud rate or wrong port. Confirm 115 200 and that you picked the adapter's port. If still blank, double-check the three jumper wires (TX↔D7, RX↔D8, GND↔GND).
+**If the terminal is blank or shows nothing:** baud rate or wrong port. Confirm 57 600 and that you picked the adapter's port. If still blank, double-check the three jumper wires (TX↔D7, RX↔D8, GND↔GND).
 
 **If you see `? no servo ID <n>`** for any motor: IDs / baud / protocol don't match the firmware, or UART switch is still on Upload, or shield power is off, or the cable is in the RS-485 jack. Re-check sections 3, 4, and 6.
 
@@ -172,7 +175,7 @@ python scripts/jog.py --port /dev/cu.usbserial-XXXX
   ok 0.50 -0.30 0.20
 ```
 
-`scripts/usb_console.py` is a terminal replacement for Arduino Serial Monitor — useful for one-off inspection. All three scripts default to baud **115 200** to match the sketch.
+`scripts/usb_console.py` is a terminal replacement for Arduino Serial Monitor — useful for one-off inspection. All three scripts default to baud **57 600** to match the sketch.
 
 ---
 
@@ -196,24 +199,28 @@ Motion speed is firmware-set, not commanded: `leg_controller.ino` writes `PROFIL
 
 ## 10. Calibration
 
-If the leg's mechanical zero doesn't match the sim's zero, apply a constant per-joint offset. Procedure:
+`leg_controller.ino` ships with `OFFSET_SHOULDER_DEG = OFFSET_WING_DEG = OFFSET_KNEE_DEG = 180.0f`. That maps `q = 0 rad` to motor position 180° — the geometric middle of `OP_POSITION`'s 0–360° range. Around that neutral, each joint's full radian limit lands inside the motor's reachable range:
 
-1. Move the physical leg into the **sim's zero pose** by hand (motors torque-off, or send the angle that physically produces that pose).
-2. Read each motor's present position by adding a debug print to the sketch (`dxl.readControlTableItem(PRESENT_POSITION, id)` returns ticks; convert with `* 360.0 / 4096.0` for degrees).
-3. The difference between the read position and 0 rad **is** that joint's offset.
-4. Apply the offset in one place — easiest in `leg_controller.ino` right before `setGoalPosition`, so the sim, IK scripts, and Python all stay aligned without knowing about the offset.
+| Joint | Range from q=0 | Motor degrees |
+|---|---|---|
+| Shoulder | ±π/2 (±90°) | 90°–270° |
+| Wing | ±0.873 (±50°) | 130°–230° |
+| Knee | −2.007 to +π/2 (−115° to +90°) | 65°–270° |
+
+**Physical assembly assumption:** when you mount the leg links to the horns, do it with the motor sitting at 180° (its electrical midpoint). Then "q=0 across the board" produces the sim's zero pose mechanically.
+
+If you remount a motor or the sim's zero diverges from the physical neutral, recalibrate by editing the three `OFFSET_*_DEG` constants:
+
+1. Power the bus, leave the motors **torque off** (or just observe present positions before commands move them).
+2. By hand, move the leg to the sim's zero pose.
+3. Read the boot-time `ID <n> pos deg=...` line printed by `setup()` — that's the motor's current degree value.
+4. Use that value as the new `OFFSET_*_DEG` for that joint.
 
 ---
 
-## 11. Known issue — knee can't reach negative angles yet
+## 11. ~~Known issue — knee can't reach negative angles yet~~ Resolved
 
-`leg_controller.ino` uses `OP_POSITION` (single-turn, 0–360°). The knee's limit goes to **−2.007 rad (≈ −115°)**, which `OP_POSITION` cannot represent — negative degrees get clamped to 0 by the library. Until this is fixed, the knee's full negative range is unreachable.
-
-Two ways to fix:
-- Switch knee (and any joint that needs negative angles) to `OP_EXTENDED_POSITION` mode.
-- Or, add a +180° offset to the knee in the sketch so the sim's range maps into 65°–270° on the motor — works only if mechanically the wiring/horn allows it.
-
-Pick one before relying on the full sim range on hardware.
+Previously, the knee's `−2.007 rad (≈ −115°)` minimum was unreachable because `OP_POSITION` is single-turn 0–360° and negative degrees clamp to 0. The 180° offset in §10 fixes this: `−115°` from neutral lands at motor `65°`, well inside the range. No `OP_EXTENDED_POSITION` switch needed.
 
 ---
 

@@ -27,7 +27,7 @@
 #include <Dynamixel2Arduino.h>
 
 #define DXL_BAUD 115200
-#define HOST_BAUD 115200
+#define HOST_BAUD 57600
 #define DXL_PROTOCOL_VERSION 2.0f
 #define DXL_DIR_PIN 2
 #define STEP_DEG 15.0f

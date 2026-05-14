@@ -106,7 +106,7 @@ def main():
     parser.add_argument("y", type=float, help="Target Y (mm)")
     parser.add_argument("z", type=float, help="Target Z (mm)")
     parser.add_argument("--port", "-p", default=None, help="Serial port")
-    parser.add_argument("--baud", "-b", type=int, default=115200, help="Baud rate")
+    parser.add_argument("--baud", "-b", type=int, default=57600, help="Baud rate")
     parser.add_argument("--dry-run", action="store_true", help="Only run IK, print angles, do not send")
     args = parser.parse_args()
 

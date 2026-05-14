@@ -11,7 +11,7 @@
 
 #define DXL_DIR_PIN 2
 #define DXL_PROTOCOL_VERSION 2.0f
-#define HOST_BAUD 115200
+#define HOST_BAUD 57600
 
 SoftwareSerial cmd(7, 8);  // RX=D7 ← adapter TX, TX=D8 → adapter RX
 Dynamixel2Arduino dxl(Serial, DXL_DIR_PIN);

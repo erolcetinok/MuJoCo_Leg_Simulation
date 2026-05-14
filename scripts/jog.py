@@ -49,7 +49,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", "-p", default=None,
                         help="Adapter serial port (e.g. /dev/cu.usbserial-A1234)")
-    parser.add_argument("--baud", "-b", type=int, default=115200)
+    parser.add_argument("--baud", "-b", type=int, default=57600)
     args = parser.parse_args()
 
     port = args.port or os.environ.get("SERIAL_PORT")

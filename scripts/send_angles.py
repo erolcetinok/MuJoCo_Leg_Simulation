@@ -47,7 +47,7 @@ def main() -> None:
         default=None,
         help="Adapter serial port (e.g. /dev/cu.usbserial-A1234 on Mac, COM3 on Windows)",
     )
-    parser.add_argument("--baud", "-b", type=int, default=115200, help="Baud rate (default 115200)")
+    parser.add_argument("--baud", "-b", type=int, default=57600, help="Baud rate (default 57600)")
     args = parser.parse_args()
 
     port = args.port or os.environ.get("SERIAL_PORT")

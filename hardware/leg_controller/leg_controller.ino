@@ -24,7 +24,7 @@
 #include <Dynamixel2Arduino.h>
 
 #define DXL_BAUD 115200
-#define HOST_BAUD 115200
+#define HOST_BAUD 57600
 #define MAX_LINE 64
 #define DXL_PROTOCOL_VERSION 2.0f
 #define DXL_DIR_PIN 2
@@ -35,12 +35,18 @@ Dynamixel2Arduino dxl(Serial, DXL_DIR_PIN);
 using namespace ControlTableItem;
 
 #define ID_SHOULDER 1
-#define ID_WING     2
-#define ID_KNEE     3
+#define ID_WING 2
+#define ID_KNEE 3
 
 const float LIMIT_SHOULDER[2] = { -1.57079632679f, 1.57079632679f };
-const float LIMIT_WING[2]     = { -0.872664625997f, 0.872664625997f };
-const float LIMIT_KNEE[2]     = { -2.00712863979f, 1.57079632679f };
+const float LIMIT_WING[2] = { -0.872664625997f, 0.872664625997f };
+const float LIMIT_KNEE[2] = { -2.00712863979f, 1.57079632679f };
+
+// Per-joint mechanical zero in motor degrees. q=0 rad maps to motor 180°
+// (geometric middle of OP_POSITION's 0–360° range).
+const float OFFSET_SHOULDER_DEG = 180.0f;
+const float OFFSET_WING_DEG = 180.0f;
+const float OFFSET_KNEE_DEG = 180.0f;
 
 void processLine(char* line);
 
@@ -56,6 +62,15 @@ void setup() {
       cmd.println(id);
       continue;
     }
+    dxl.reboot(id);
+    delay(300);
+    int32_t ticks = dxl.getPresentPosition(id);
+    cmd.print("ID ");
+    cmd.print(id);
+    cmd.print(" pos ticks=");
+    cmd.print(ticks);
+    cmd.print(" deg=");
+    cmd.println(ticks * 360.0f / 4096.0f, 2);
     dxl.torqueOff(id);
     dxl.setOperatingMode(id, OP_POSITION);
     dxl.torqueOn(id);
@@ -79,6 +94,8 @@ void loop() {
       len = 0;
       break;
     }
+    // Discard SoftwareSerial noise before the 'q,' command prefix.
+    if (len == 0 && c != 'q') continue;
     line[len++] = c;
   }
   if (len >= MAX_LINE - 1) {
@@ -87,23 +104,42 @@ void loop() {
 }
 
 void processLine(char* line) {
-  float q1, q2, q3;
-  if (sscanf(line, "q,%f,%f,%f", &q1, &q2, &q3) != 3) {
+  // Arduino AVR's default sscanf has no %f support, so parse with strtod.
+  if (line[0] != 'q' || line[1] != ',') {
+    cmd.println("? bad format; use q,q1,q2,q3");
+    return;
+  }
+  char* p = line + 2;
+  char* end;
+  float q1 = strtod(p, &end);
+  if (end == p || *end != ',') {
+    cmd.println("? bad format; use q,q1,q2,q3");
+    return;
+  }
+  p = end + 1;
+  float q2 = strtod(p, &end);
+  if (end == p || *end != ',') {
+    cmd.println("? bad format; use q,q1,q2,q3");
+    return;
+  }
+  p = end + 1;
+  float q3 = strtod(p, &end);
+  if (end == p) {
     cmd.println("? bad format; use q,q1,q2,q3");
     return;
   }
 
   q1 = constrain(q1, LIMIT_SHOULDER[0], LIMIT_SHOULDER[1]);
-  q2 = constrain(q2, LIMIT_WING[0],     LIMIT_WING[1]);
-  q3 = constrain(q3, LIMIT_KNEE[0],     LIMIT_KNEE[1]);
+  q2 = constrain(q2, LIMIT_WING[0], LIMIT_WING[1]);
+  q3 = constrain(q3, LIMIT_KNEE[0], LIMIT_KNEE[1]);
 
-  float d1 = q1 * 180.0f / PI;
-  float d2 = q2 * 180.0f / PI;
-  float d3 = q3 * 180.0f / PI;
+  float d1 = q1 * 180.0f / PI + OFFSET_SHOULDER_DEG;
+  float d2 = q2 * 180.0f / PI + OFFSET_WING_DEG;
+  float d3 = q3 * 180.0f / PI + OFFSET_KNEE_DEG;
 
   dxl.setGoalPosition(ID_SHOULDER, d1, UNIT_DEGREE);
-  dxl.setGoalPosition(ID_WING,     d2, UNIT_DEGREE);
-  dxl.setGoalPosition(ID_KNEE,    d3, UNIT_DEGREE);
+  dxl.setGoalPosition(ID_WING, d2, UNIT_DEGREE);
+  dxl.setGoalPosition(ID_KNEE, d3, UNIT_DEGREE);
 
   cmd.print("ok ");
   cmd.print(q1);

@@ -10,8 +10,8 @@
 // If you don't know the motor's current ID/baud, run
 // hardware/tools/find_motor/find_motor.ino first.
 
-#define SOURCE_ID 2   // <<< what the motor is at right now (per find_motor) >>>
-#define TARGET_ID 3   // <<< what you want the motor to become >>>
+#define SOURCE_ID 3   // <<< what the motor is at right now (per find_motor) >>>
+#define TARGET_ID 1   // <<< what you want the motor to become >>>
 
 #include <SoftwareSerial.h>
 #include <Dynamixel2Arduino.h>
@@ -19,7 +19,7 @@
 #define DXL_DIR_PIN 2
 #define DXL_PROTOCOL_VERSION 2.0f
 #define TARGET_BAUD  115200
-#define HOST_BAUD    115200
+#define HOST_BAUD    57600
 
 // Bauds to try when probing for the motor's current state. Covers factory-
 // fresh (57600), the post-migration value (115200), and the old project
