@@ -1,0 +1,39 @@
+robot: single_leg
+description_xml: description/single_leg.xml
+
+serial:
+  baud_host: 57600          # SoftwareSerial ceiling on UNO R3
+  baud_dxl: 115200
+
+joints:
+  - name: shoulder
+    motor_id: 1
+    limit_rad: [-1.57079632679, 1.57079632679]
+    offset_deg: 180.0
+    direction: 1
+  - name: wing
+    motor_id: 2
+    limit_rad: [-0.872664625997, 0.872664625997]
+    offset_deg: 180.0
+    direction: 1
+  - name: knee
+    motor_id: 3
+    limit_rad: [-2.00712863979, 1.57079632679]
+    offset_deg: 180.0
+    direction: 1
+
+links_mm:
+  shoulder_to_thigh: 35.75
+  thigh_to_foot: 98.0
+  foot_offset: 21.0
+
+foot_site_offset_mm: [21, -12, 0]
+target_site_offset_mm: [20, -175, -50]
+
+mjcf:
+  foot_site_name: foot_site
+  target_site_name: target_site
+  joint_names:
+    - shoulder_joint
+    - wing_joint
+    - knee_joint

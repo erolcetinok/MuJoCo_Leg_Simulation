@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""Generate firmware header + Python config from configs/robot.yaml.
+
+This is the single source of truth pipeline: edit configs/robot.yaml, run this
+script, and both `firmware/leg_controller/robot_config.h` and
+`src/quadruped/config.py` are regenerated. The firmware sketch #includes the
+header; the Python package imports the config module. Neither artifact should
+be hand-edited.
+
+Usage:
+  python scripts/codegen.py           # regenerate (writes both files)
+  python scripts/codegen.py --check   # exit 1 if either file is stale vs YAML
+
+For pre-commit / CI: `python scripts/codegen.py --check`.
+"""
+from __future__ import annotations
+
+import argparse
+import difflib
+import sys
+from pathlib import Path
+
+import yaml
+from jinja2 import Environment
+
+ENV = Environment(autoescape=False, keep_trailing_newline=True)
+ENV.filters["repr"] = repr
+
+ROOT = Path(__file__).resolve().parent.parent
+YAML_PATH = ROOT / "configs" / "robot.yaml"
+HEADER_PATH = ROOT / "firmware" / "leg_controller" / "robot_config.h"
+CONFIG_PY_PATH = ROOT / "src" / "quadruped" / "config.py"
+
+GENERATED_BANNER_H = (
+    "// AUTO-GENERATED from configs/robot.yaml by scripts/codegen.py.\n"
+    "// Do not edit by hand — re-run codegen after editing the YAML.\n"
+)
+GENERATED_BANNER_PY = (
+    "# AUTO-GENERATED from configs/robot.yaml by scripts/codegen.py.\n"
+    "# Do not edit by hand — re-run codegen after editing the YAML.\n"
+)
+
+HEADER_TMPL = ENV.from_string(
+    """{{ banner }}#ifndef ROBOT_CONFIG_H
+#define ROBOT_CONFIG_H
+
+#define HOST_BAUD {{ serial.baud_host }}
+#define DXL_BAUD {{ serial.baud_dxl }}
+
+{% for j in joints -%}
+#define ID_{{ j.name|upper }} {{ j.motor_id }}
+{% endfor %}
+{% for j in joints -%}
+static const float OFFSET_{{ j.name|upper }}_DEG = {{ "%.6f"|format(j.offset_deg) }}f;
+{% endfor %}
+{% for j in joints -%}
+static const float LIMIT_{{ j.name|upper }}[2] = { {{ "%.11f"|format(j.limit_rad[0]) }}f, {{ "%.11f"|format(j.limit_rad[1]) }}f };
+{% endfor -%}
+{% for j in joints -%}
+static const float DIR_{{ j.name|upper }} = {{ "%.1f"|format(j.direction|float) }}f;
+{% endfor %}
+#endif  // ROBOT_CONFIG_H
+"""
+)
+
+CONFIG_PY_TMPL = ENV.from_string(
+    '''{{ banner }}"""Static robot configuration generated from configs/robot.yaml.
+
+This module is self-contained — it does not read the YAML at import time, so
+runtime has no pyyaml dependency. Regenerate with `python scripts/codegen.py`.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Tuple
+
+
+@dataclass(frozen=True)
+class Joint:
+    name: str
+    motor_id: int
+    limit_rad: Tuple[float, float]
+    offset_deg: float
+    direction: int
+
+
+@dataclass(frozen=True)
+class Serial:
+    baud_host: int
+    baud_dxl: int
+
+
+@dataclass(frozen=True)
+class LinksMM:
+    shoulder_to_thigh: float
+    thigh_to_foot: float
+    foot_offset: float
+
+
+@dataclass(frozen=True)
+class MjcfNames:
+    foot_site_name: str
+    target_site_name: str
+    joint_names: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class RobotConfig:
+    robot: str
+    description_xml: str
+    serial: Serial
+    joints: Tuple[Joint, ...]
+    links_mm: LinksMM
+    foot_site_offset_mm: Tuple[float, float, float]
+    target_site_offset_mm: Tuple[float, float, float]
+    mjcf: MjcfNames
+
+    def joint(self, name: str) -> Joint:
+        for j in self.joints:
+            if j.name == name:
+                return j
+        raise KeyError(f"unknown joint: {name!r}")
+
+    @property
+    def joint_names(self) -> Tuple[str, ...]:
+        return tuple(j.name for j in self.joints)
+
+
+CONFIG: RobotConfig = RobotConfig(
+    robot={{ robot|repr }},
+    description_xml={{ description_xml|repr }},
+    serial=Serial(baud_host={{ serial.baud_host }}, baud_dxl={{ serial.baud_dxl }}),
+    joints=(
+{% for j in joints -%}
+        Joint(name={{ j.name|repr }}, motor_id={{ j.motor_id }}, limit_rad=({{ "%.11f"|format(j.limit_rad[0]) }}, {{ "%.11f"|format(j.limit_rad[1]) }}), offset_deg={{ "%.6f"|format(j.offset_deg) }}, direction={{ j.direction }}),
+{% endfor -%}
+    ),
+    links_mm=LinksMM(
+        shoulder_to_thigh={{ links_mm.shoulder_to_thigh }},
+        thigh_to_foot={{ links_mm.thigh_to_foot }},
+        foot_offset={{ links_mm.foot_offset }},
+    ),
+    foot_site_offset_mm=({{ foot_site_offset_mm[0] }}, {{ foot_site_offset_mm[1] }}, {{ foot_site_offset_mm[2] }}),
+    target_site_offset_mm=({{ target_site_offset_mm[0] }}, {{ target_site_offset_mm[1] }}, {{ target_site_offset_mm[2] }}),
+    mjcf=MjcfNames(
+        foot_site_name={{ mjcf.foot_site_name|repr }},
+        target_site_name={{ mjcf.target_site_name|repr }},
+        joint_names=(
+{% for jn in mjcf.joint_names -%}
+            {{ jn|repr }},
+{% endfor -%}
+        ),
+    ),
+)
+'''
+)
+
+
+def render(yaml_data: dict) -> tuple[str, str]:
+    header = HEADER_TMPL.render(banner=GENERATED_BANNER_H, **yaml_data)
+    config_py = CONFIG_PY_TMPL.render(banner=GENERATED_BANNER_PY, **yaml_data)
+    return header, config_py
+
+
+def _diff(actual: str, expected: str, label: str) -> str:
+    return "".join(
+        difflib.unified_diff(
+            actual.splitlines(keepends=True),
+            expected.splitlines(keepends=True),
+            fromfile=f"{label} (on disk)",
+            tofile=f"{label} (regenerated)",
+        )
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true",
+                        help="Exit 1 if generated artifacts are stale vs YAML.")
+    args = parser.parse_args()
+
+    yaml_data = yaml.safe_load(YAML_PATH.read_text())
+    header, config_py = render(yaml_data)
+
+    if args.check:
+        drift = False
+        for path, content, label in (
+            (HEADER_PATH, header, "robot_config.h"),
+            (CONFIG_PY_PATH, config_py, "config.py"),
+        ):
+            on_disk = path.read_text() if path.exists() else ""
+            if on_disk != content:
+                diff = _diff(on_disk, content, label)
+                sys.stderr.write(f"DRIFT in {path.relative_to(ROOT)}:\n{diff}\n")
+                drift = True
+        if drift:
+            sys.stderr.write(
+                "\nRun `python scripts/codegen.py` to regenerate.\n"
+            )
+            return 1
+        print("ok: generated artifacts match configs/robot.yaml")
+        return 0
+
+    HEADER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    HEADER_PATH.write_text(header)
+    CONFIG_PY_PATH.write_text(config_py)
+    print(f"wrote {HEADER_PATH.relative_to(ROOT)}")
+    print(f"wrote {CONFIG_PY_PATH.relative_to(ROOT)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

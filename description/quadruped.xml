@@ -9,10 +9,10 @@
     <option gravity="0 0 -981"/>
 
     <asset>
-        <mesh name="body_mesh"     file="../models/body.STL"/>
-        <mesh name="shoulder_mesh" file="../models/shoulder.STL"/>
-        <mesh name="thigh_mesh"    file="../models/thigh.STL"/>
-        <mesh name="foot_mesh"     file="../models/foot.STL"/>
+        <mesh name="body_mesh"     file="meshes/body.STL"/>
+        <mesh name="shoulder_mesh" file="meshes/shoulder.STL"/>
+        <mesh name="thigh_mesh"    file="meshes/thigh.STL"/>
+        <mesh name="foot_mesh"     file="meshes/foot.STL"/>
 
         <texture name="texgrid" type="2d" builtin="checker"
                  rgb1="0.2 0.2 0.2" rgb2="0.85 0.85 0.85"
@@ -66,7 +66,7 @@
             <position kp="60" ctrlrange="-0.872664625997 0.872664625997"/>
         </default>
         <default class="knee_actuator">
-            <position kp="80" ctrlrange="-0.872664625997 1.3962634016"/>
+            <position kp="80" ctrlrange="-2.00712863979 1.57079632679"/>
         </default>
     </default>
 

@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "quadruped"
+version = "0.1.0"
+description = "MuJoCo + Dynamixel quadruped: shared kinematics, control, and backends for sim and hardware."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Erol Cetinok" }]
+
+dependencies = [
+    "numpy",
+    "scipy",
+    "mujoco",
+    "pyserial>=3.5",
+    "pyyaml",
+    "jinja2",
+]
+
+[project.optional-dependencies]
+gui = ["dearpygui"]
+dev = ["pytest"]
+
+[project.scripts]
+quad-send-foot = "quadruped.cli.send_foot:main"
+quad-send-angles = "quadruped.cli.send_angles:main"
+quad-jog = "quadruped.cli.jog:main"
+quad-view = "quadruped.cli.view:main"
+quad-ik-demo = "quadruped.cli.ik_demo:main"
+quad-gait-demo = "quadruped.cli.gait_demo:main"
+quad-gui = "quadruped.cli.gui:main"
+quad-codegen = "quadruped.cli.codegen:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/quadruped"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

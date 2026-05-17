@@ -13,18 +13,24 @@
 //   - Arduino USB-B (/dev/cu.usbmodem*)  → flash only; do not use for comms.
 //   - Adapter USB    (/dev/cu.usbserial* or /dev/cu.SLAB_USBtoUART)  → host
 //                                                                     I/O at
-//                                                                     115200.
+//                                                                     HOST_BAUD
+//                                                                     (see
+//                                                                     robot_config.h).
 //
 // UART switch on the shield:
 //   - Upload position → flashing the sketch.
 //   - DYNAMIXEL position → runtime (shield uses the hardware UART for the
 //     DXL bus).
+//
+// Joint limits, motor IDs, offsets, and bauds all come from robot_config.h,
+// generated from ../../configs/robot.yaml by scripts/codegen.py — do not
+// hand-edit the .h.
 
 #include <SoftwareSerial.h>
 #include <Dynamixel2Arduino.h>
 
-#define DXL_BAUD 115200
-#define HOST_BAUD 57600
+#include "robot_config.h"
+
 #define MAX_LINE 64
 #define DXL_PROTOCOL_VERSION 2.0f
 #define DXL_DIR_PIN 2
@@ -33,20 +39,6 @@ SoftwareSerial cmd(7, 8);  // RX=D7 ← adapter TX, TX=D8 → adapter RX
 
 Dynamixel2Arduino dxl(Serial, DXL_DIR_PIN);
 using namespace ControlTableItem;
-
-#define ID_SHOULDER 1
-#define ID_WING 2
-#define ID_KNEE 3
-
-const float LIMIT_SHOULDER[2] = { -1.57079632679f, 1.57079632679f };
-const float LIMIT_WING[2] = { -0.872664625997f, 0.872664625997f };
-const float LIMIT_KNEE[2] = { -2.00712863979f, 1.57079632679f };
-
-// Per-joint mechanical zero in motor degrees. q=0 rad maps to motor 180°
-// (geometric middle of OP_POSITION's 0–360° range).
-const float OFFSET_SHOULDER_DEG = 180.0f;
-const float OFFSET_WING_DEG = 180.0f;
-const float OFFSET_KNEE_DEG = 180.0f;
 
 void processLine(char* line);
 

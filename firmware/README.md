@@ -1,6 +1,6 @@
 # Single-leg hardware setup
 
-Start-to-finish bring-up for the 3-DoF leg: three daisy-chained Dynamixels driven by an Arduino UNO R3, commanded over USB from your Mac. Joint order everywhere is **shoulder → wing → knee**, same as `meshes/single_leg.xml`.
+Start-to-finish bring-up for the 3-DoF leg: three daisy-chained Dynamixels driven by an Arduino UNO R3, commanded over USB from your Mac. Joint order everywhere is **shoulder → wing → knee**, same as `description/single_leg.xml`.
 
 The Arduino's onboard USB is **flash-only** for this project. Host comms (commands and replies) go through a small USB-to-TTL adapter wired to the Arduino's D7/D8 pins. The reason: on UNO R3, the Dynamixel Shield and the onboard USB-UART chip both live on the same hardware UART (D0/D1) and electrically fight each other for D0 — you cannot reliably read host bytes through the Arduino's USB while the shield is driving the DXL bus. See §5 for the full explanation. The adapter sidesteps the problem cleanly by putting host comms on a second, dedicated serial path that ROBOTIS designed the shield for.
 
@@ -31,7 +31,7 @@ Official references (only consult if something doesn't match below):
 1. Install [Arduino IDE 2](https://www.arduino.cc/en/software).
 2. **Tools → Board → Boards Manager** → install **Arduino AVR Boards** (it's usually pre-installed; Arduino UNO appears under it).
 3. **Tools → Manage Libraries** → install **Dynamixel2Arduino**.
-4. From the repo root (the directory containing `requirements.txt`, one level above `hardware/`): `pip install -r requirements.txt` — needed for the helper scripts in `scripts/`.
+4. From the repo root (the directory containing `pyproject.toml`, one level above `firmware/`): `pip install -e .` — installs the `quadruped` Python package and pulls in pyserial/numpy/mujoco for the host-side scripts.
 5. macOS bundles drivers for CP2102 and FTDI out of the box (macOS 11+). For CH340 modules, install [WCH's signed driver](https://www.wch-ic.com/downloads/CH34XSER_MAC_ZIP.html) if your adapter doesn't enumerate.
 
 ---
@@ -44,12 +44,14 @@ Each motor must end up at **ID 1 / 2 / 3**, **baud 115 200**, **Protocol 2.0**. 
 
 **You need the shield powered and wired first** — do section 4, then come back here before uploading `leg_controller.ino`.
 
-Use the repo-local helper sketch `hardware/configure_motor/configure_motor.ino`. It probes the motor across 57 600 / 115 200 / 1 000 000, sets it to your target ID, then changes its baud to 115 200 — all in one upload. Output prints to the adapter's terminal at **57 600** (host link baud — see §5).
+> Joint limits, motor IDs, baud rates, and zero offsets all live in `configs/robot.yaml` and are codegen'd into `firmware/leg_controller/robot_config.h` (which the sketch `#include`s). To change any of them, edit the YAML and run `python scripts/codegen.py` — do not hand-edit the `.h` file.
+
+Use the repo-local helper sketch `firmware/configure_motor/configure_motor.ino`. It probes the motor across 57 600 / 115 200 / 1 000 000, sets it to your target ID, then changes its baud to 115 200 — all in one upload. Output prints to the adapter's terminal at **57 600** (host link baud — see §5).
 
 Procedure — repeat three times:
 
 1. **Disconnect all motors except the one you're configuring.** Plug only motor #1 (or #2 or #3 — they're all identical at this point) into the shield's TTL jack.
-2. Open `hardware/configure_motor/configure_motor.ino`.
+2. Open `firmware/configure_motor/configure_motor.ino`.
 3. Edit `#define SOURCE_ID` (match the motor's current ID, or 1 for factory-fresh) and `#define TARGET_ID` — **1** for shoulder, **2** for wing, **3** for knee.
 4. Set UART switch to **Upload**, click **Upload** in the IDE.
 5. Flip UART switch to **DYNAMIXEL**, press **RESET**, wait ~3 seconds.
@@ -109,7 +111,7 @@ What this means in practice:
 
 ## 6. Upload firmware
 
-1. Open `hardware/leg_controller/leg_controller.ino` in Arduino IDE.
+1. Open `firmware/leg_controller/leg_controller.ino` in Arduino IDE.
 2. **Tools → Board → Arduino AVR Boards → Arduino UNO**.
 3. **Tools → Port** → the **Arduino's** USB device (`/dev/cu.usbmodem...`). This is for flashing only; not the adapter's port.
 4. Set UART switch on shield to **Upload**.
@@ -191,7 +193,7 @@ python scripts/jog.py --port /dev/cu.usbserial-XXXX
   | Wing | −0.873 (≈ −50°) | +0.873 (≈ +50°) |
   | Knee | −2.007 (≈ −115°) | +π/2 |
 
-Limits match `meshes/single_leg.xml`.
+Limits match `description/single_leg.xml`.
 
 Motion speed is firmware-set, not commanded: `leg_controller.ino` writes `PROFILE_VELOCITY = 40` to each motor in `setup()`. Edit that constant in the sketch if you want faster/slower trajectories — the Python side has no speed parameter.
 

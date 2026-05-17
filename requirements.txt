@@ -1,6 +1,0 @@
-# For simulation (existing)
-numpy
-mujoco
-
-# For hardware: send angles to Arduino
-pyserial>=3.5

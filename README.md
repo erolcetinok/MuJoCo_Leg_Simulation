@@ -1,32 +1,100 @@
-# MuJoCo Quadruped Simulation
+# MuJoCo Quadruped
 
-MuJoCo kinematic modeling and inverse kinematics practice for a **3 DoF quadruped robot**, practice for later physical implementation with Dynamixel actuators.
+A 3-DoF quadruped robot project with a tight simulation ↔ hardware parallel:
+MuJoCo simulation, Dynamixel-driven physical leg, and a backend abstraction so
+the same command stream can drive either or both in lockstep.
 
----
-
-## Overview
-
-This repository is used to:
-- validate CAD and test joint alignment
-- Develop and test **Jacobian-based IK** for 3 DoF leg
-- Prototype basic gaits (walk & trot)
-- Practice for transition to hardware
-- focus is on **kinematics and control logic**
+Current state: single physical leg working (Arduino UNO R3 + Dynamixel Shield +
+3× XL430). Goal: walking quadruped over the summer, progressing through
+kinematics → trajectories → PID → gait → 4-leg coordination → IMU → ROS 2.
 
 ---
 
-## Features
+## Layout
 
-- Single leg and full quadruped MuJoCo models
-- Damped least squares IK
-- Parametric walk and trot gait
-- Millimeter scale geometry
+```
+configs/robot.yaml             single source of truth (joints, limits, offsets, bauds)
+description/                   MJCF + STL meshes (MuJoCo-Menagerie convention)
+firmware/                      Arduino sketches; robot_config.h is codegen'd
+src/quadruped/                 Python package
+  ├── config.py                generated dataclass mirroring robot.yaml
+  ├── kinematics/              IK (damped least-squares) + FK
+  ├── control/                 trajectory / PID / gait (Phase 2-4 homes)
+  ├── backends/                RobotBackend ABC; Mujoco, Arduino, Mirror impls
+  ├── sim/                     MuJoCo loader with YAML-consistency assertions
+  ├── gui/                     Dear PyGui slider app (Landing 2 — stub)
+  └── cli/                     entry-point modules: send_foot, jog, view, ik_demo…
+scripts/                       thin shims + codegen.py
+tests/                         pytest: codegen drift + IK→FK round-trip
+cad/                           CAD source (e.g. thigh.3mf)
+```
 
----
+## Quickstart
 
-## Tech Stack
+```bash
+# Install the package + tooling (creates `quad-*` CLI entry points)
+pip install -e .[dev,gui]
 
-- **Simulation:** MuJoCo  
-- **Language:** Python  
-- **Math:** NumPy
-- **CAD:** SolidWorks (rough STL exports for visualization)
+# Verify everything works
+python scripts/codegen.py --check     # generated artifacts match robot.yaml
+pytest                                # IK round-trip + codegen tests
+
+# Simulation only
+python scripts/send_foot.py 20 -175 -50 --dry-run     # IK only, prints angles
+python scripts/send_foot.py 20 -175 -50 --backend sim --viewer
+python scripts/view.py --model single
+python scripts/ik_demo.py --path step
+python scripts/gait_demo.py --gait trot
+
+# Hardware (needs the leg powered + USB-to-TTL adapter — see firmware/README.md)
+export SERIAL_PORT=/dev/cu.usbserial-XXXX
+python scripts/send_foot.py 20 -175 -50 --backend hw
+python scripts/jog.py --backend hw
+
+# Sim + hardware in lockstep
+python scripts/send_foot.py 20 -175 -50 --backend mirror --viewer
+```
+
+## Editing the robot configuration
+
+Joint limits, motor IDs, baud rates, zero offsets, and link lengths live in
+**`configs/robot.yaml`**. Two artifacts are generated from it and committed:
+
+- `firmware/leg_controller/robot_config.h` — `#include`d by the sketch
+- `src/quadruped/config.py` — frozen dataclass imported by the package
+
+After editing the YAML, run `python scripts/codegen.py`. A `--check` mode is
+included for pre-commit / CI: it fails if either artifact has drifted.
+
+## Backends
+
+`quadruped.backends.RobotBackend` is the abstraction. Three implementations
+ship today:
+
+| Backend             | What it does                                          |
+| ------------------- | ----------------------------------------------------- |
+| `MujocoBackend`     | Drives `data.ctrl` on the MJCF model; optional viewer |
+| `ArduinoBackend`    | Serial bridge to `leg_controller.ino` (same wire format) |
+| `MirrorBackend`     | Fans the same target to multiple backends             |
+| `DynamixelBackend`  | Stub for a future U2D2 + DynamixelSDK direct path     |
+
+## Phase roadmap
+
+1. **Kinematics foundation** — IK exists (✓), refactor into the package (✓)
+2. **Smooth motion / trajectories** — `control/trajectory.py` (cubic splines + Bezier swing curves)
+3. **PID / feedback control** — `control/pid.py`
+4. **Single-leg gait state machine** — `control/gait.py`
+5. **4-leg coordination** — wire up `quadruped.xml` in real hardware
+6. **Body kinematics & stability**
+7. **IMU + state estimation**
+8. **ROS 2 integration** — thin wrappers around the library
+9. **Advanced locomotion** — trot transitions, terrain
+10. **RL / MPC / vision**
+
+The package is intentionally ROS-free so Phase 8 is a thin `ament_python`
+wrapper rather than a rewrite.
+
+## Hardware
+
+Full bring-up (parts, wiring, motor configuration, calibration) is in
+**`firmware/README.md`**.
