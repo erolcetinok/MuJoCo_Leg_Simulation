@@ -53,7 +53,19 @@ python scripts/jog.py --backend hw
 
 # Sim + hardware in lockstep
 python scripts/send_foot.py 20 -175 -50 --backend mirror --viewer
+
+# Interactive slider GUI (Dear PyGui + embedded MuJoCo render)
+python scripts/gui.py --backend sim                       # default: embedded sim view in the GUI
+python scripts/gui.py --backend mirror --viewer embedded  # GUI drives sim + physical leg
+python scripts/gui.py --backend hw --viewer none          # slider-only, no sim view
+python scripts/gui.py --backend sim --viewer external     # fall back to mujoco passive viewer
 ```
+
+> **GUI viewer modes:** `embedded` (default) renders MuJoCo offscreen into a
+> Dear PyGui dynamic texture — one window, one process, no second GLFW
+> context, works reliably on macOS. `external` launches MuJoCo's full
+> passive viewer in a separate window (useful for mouse-camera control), but
+> on macOS the dual-GLFW setup is fragile. `none` is slider-only.
 
 ## Editing the robot configuration
 
@@ -63,8 +75,19 @@ Joint limits, motor IDs, baud rates, zero offsets, and link lengths live in
 - `firmware/leg_controller/robot_config.h` — `#include`d by the sketch
 - `src/quadruped/config.py` — frozen dataclass imported by the package
 
-After editing the YAML, run `python scripts/codegen.py`. A `--check` mode is
-included for pre-commit / CI: it fails if either artifact has drifted.
+After editing the YAML, run `python scripts/codegen.py` (or `quad-codegen`
+after install). A `--check` mode is included for pre-commit / CI: it fails if
+either artifact has drifted.
+
+To make drift a build error, install the bundled pre-commit hook:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+After that every `git commit` runs `scripts/codegen.py --check` and refuses
+to commit when the YAML and generated files don't match.
 
 ## Backends
 

@@ -1,0 +1,18 @@
+# Run `pre-commit install` once to wire this in.
+# Then every `git commit` will fail if configs/robot.yaml and the generated
+# firmware/leg_controller/robot_config.h or src/quadruped/config.py drift.
+repos:
+  - repo: local
+    hooks:
+      - id: codegen-check
+        name: codegen drift check (configs/robot.yaml → header + config.py)
+        entry: python scripts/codegen.py --check
+        language: system
+        pass_filenames: false
+        files: |
+          (?x)^(
+            configs/robot\.yaml|
+            firmware/leg_controller/robot_config\.h|
+            src/quadruped/config\.py|
+            scripts/codegen\.py
+          )$

@@ -34,6 +34,9 @@ quad-gait-demo = "quadruped.cli.gait_demo:main"
 quad-gui = "quadruped.cli.gui:main"
 quad-codegen = "quadruped.cli.codegen:main"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/quadruped"]
 
