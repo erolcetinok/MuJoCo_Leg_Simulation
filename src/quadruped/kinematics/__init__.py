@@ -1,4 +1,8 @@
-from quadruped.kinematics.ik import DampedLeastSquaresIK, clamp_to_limits
-from quadruped.kinematics.fk import foot_position
+"""Kinematics package — IK, FK, Jacobians, workspace.
 
-__all__ = ["DampedLeastSquaresIK", "clamp_to_limits", "foot_position"]
+Re-export your public API here as you build it. Example shape:
+
+    from quadruped.kinematics.ik import YourIKSolver
+    from quadruped.kinematics.fk import foot_position
+    __all__ = ["YourIKSolver", "foot_position"]
+"""
