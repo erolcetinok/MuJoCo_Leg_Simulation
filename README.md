@@ -8,6 +8,10 @@ Current state: single physical leg working (Arduino UNO R3 + Dynamixel Shield +
 3× XL430). Goal: walking quadruped over the summer, progressing through
 kinematics → trajectories → PID → gait → 4-leg coordination → IMU → ROS 2.
 
+> **New to the codebase?** Read **`docs/HANDBOOK.md`** — it's the working
+> guide to the project structure, phase-by-phase recipes, and the "I want
+> to…" cheat-sheet. This README is the quickstart; the handbook is the manual.
+
 ---
 
 ## Layout
