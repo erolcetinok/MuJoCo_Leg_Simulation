@@ -92,9 +92,9 @@ class Serial:
 
 @dataclass(frozen=True)
 class LinksMM:
-    shoulder_to_thigh: float
-    thigh_to_foot: float
-    foot_offset: float
+    shoulder_to_wing: Tuple[float, float, float]
+    wing_to_knee: Tuple[float, float, float]
+    knee_to_foot: Tuple[float, float, float]
 
 
 @dataclass(frozen=True)
@@ -136,9 +136,9 @@ CONFIG: RobotConfig = RobotConfig(
 {% endfor -%}
     ),
     links_mm=LinksMM(
-        shoulder_to_thigh={{ links_mm.shoulder_to_thigh }},
-        thigh_to_foot={{ links_mm.thigh_to_foot }},
-        foot_offset={{ links_mm.foot_offset }},
+        shoulder_to_wing=({{ links_mm.shoulder_to_wing[0] }}, {{ links_mm.shoulder_to_wing[1] }}, {{ links_mm.shoulder_to_wing[2] }}),
+        wing_to_knee=({{ links_mm.wing_to_knee[0] }}, {{ links_mm.wing_to_knee[1] }}, {{ links_mm.wing_to_knee[2] }}),
+        knee_to_foot=({{ links_mm.knee_to_foot[0] }}, {{ links_mm.knee_to_foot[1] }}, {{ links_mm.knee_to_foot[2] }}),
     ),
     foot_site_offset_mm=({{ foot_site_offset_mm[0] }}, {{ foot_site_offset_mm[1] }}, {{ foot_site_offset_mm[2] }}),
     target_site_offset_mm=({{ target_site_offset_mm[0] }}, {{ target_site_offset_mm[1] }}, {{ target_site_offset_mm[2] }}),
