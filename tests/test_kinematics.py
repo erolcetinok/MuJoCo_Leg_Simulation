@@ -1,14 +1,16 @@
-"""Forward-kinematics oracle test: foot_position() vs MuJoCo.
+"""Kinematics tests.
 
-MuJoCo computes the foot position from the same model geometry that
-configs/robot.yaml encodes, so it is an independent reference for the
-hand-derived transform chain in quadruped.kinematics.fk.
+  * test_fk_matches_mujoco — FK oracle: foot_position() vs MuJoCo, which
+    computes the foot position from the same geometry configs/robot.yaml
+    encodes, so it is an independent reference for the hand-derived chain.
+  * test_ik_round_trip — IK is the inverse of FK: FK(IK(p)) must recover p.
 """
 import mujoco
 import numpy as np
 import pytest
 
 from quadruped.kinematics.fk import foot_position
+from quadruped.kinematics.ik import joint_angles
 from quadruped.sim.env import load_model
 
 # (shoulder, wing, knee) in radians — kept within the joint limits.
@@ -44,4 +46,22 @@ def test_fk_matches_mujoco(angles):
     assert np.allclose(actual, expected, atol=1e-6), (
         f"angles={angles}: FK {actual} != MuJoCo {expected} "
         f"(err {np.linalg.norm(actual - expected):.3e} mm)"
+    )
+
+
+@pytest.mark.parametrize("angles", POSES)
+def test_ik_round_trip(angles):
+    """FK(IK(p)) must land the foot back on the target p.
+
+    Tested as a *position* round-trip, not an angle round-trip: analytic IK
+    has multiple branches, so IK(FK(angles)) may legitimately return a
+    different joint triple — but it must still put the foot on the target.
+    """
+    target = foot_position(*angles)
+    solved = joint_angles(*target)
+    recovered = foot_position(*solved)
+
+    assert np.allclose(recovered, target, atol=1e-6), (
+        f"target={target}: FK(IK(target))={recovered} "
+        f"(err {np.linalg.norm(recovered - target):.3e} mm)"
     )
