@@ -9,16 +9,16 @@ PHI2 = np.arctan2(L2[2], L2[1])   # heading of L2 in the y-z plane
 PHI3 = np.arctan2(L3[2], L3[1])   # heading of L3 in the y-z plane
 
 def joint_angles(x: float, y: float, z: float) -> tuple[float, float, float]:
-    py = -np.sqrt(max(x * x + y * y - PX * PX, 0.0))
-    shoulder = np.arctan2(y, x) - np.arctan2(py, PX)
-    p = np.array([PX, py, z])
+    py = -np.sqrt(max(x * x + y * y - PX * PX, 0.0)) # y value of p
+    shoulder = np.arctan2(y, x) - np.arctan2(py, PX) #solve for theta1
+    p = np.array([PX, py, z]) # declare p
 
     w = p - L1
     reach_sq = w[1] * w[1] + w[2] * w[2]
-    cos_knee = (reach_sq - LEN2**2 - LEN3**2) / (2 * LEN2 * LEN3)  # law of cosines
-    knee = (PHI2 - PHI3) + np.arccos(np.clip(cos_knee, -1.0, 1.0))
+    cos_knee = (reach_sq - LEN2**2 - LEN3**2) / (2 * LEN2 * LEN3)  # use the law of cosines
+    knee = (PHI2 - PHI3) + np.arccos(np.clip(cos_knee, -1.0, 1.0)) # solve for theta3
 
     v = L2 + rot_x(knee) @ L3
-    wing = np.arctan2(w[2], w[1]) - np.arctan2(v[2], v[1])
+    wing = np.arctan2(w[2], w[1]) - np.arctan2(v[2], v[1]) # solve for theta2
 
     return shoulder, wing, knee
