@@ -1,7 +1,7 @@
 """Send a Cartesian foot target (x, y, z in mm).
 
-Runs IK against the single-leg MuJoCo model, then dispatches the joint angles
-to the chosen backend (sim / hw / mirror).
+Solves analytic IK for the single leg, then dispatches the joint angles to the
+chosen backend (sim / hw / mirror).
 """
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ import numpy as np
 
 from quadruped.cli._backends import add_backend_args, build_backend
 from quadruped.config import CONFIG
-from quadruped.kinematics.ik import DampedLeastSquaresIK
-from quadruped.sim.env import load_model
+from quadruped.kinematics.fk import foot_position
+from quadruped.kinematics.ik import joint_angles
 
 
 def main() -> int:
@@ -26,25 +26,19 @@ def main() -> int:
     add_backend_args(parser, default="sim")
     args = parser.parse_args()
 
-    model, data = load_model(args.xml)
-    ik = DampedLeastSquaresIK(
-        model, data,
-        foot_site_name=CONFIG.mjcf.foot_site_name,
-        target_site_name=CONFIG.mjcf.target_site_name,
-        joint_names=CONFIG.mjcf.joint_names,
-    )
-    target_mm = np.array([args.x, args.y, args.z])
-    ik.set_mocap_target(target_mm, np.asarray(CONFIG.target_site_offset_mm))
-    result = ik.solve(target_mm)
+    q = joint_angles(args.x, args.y, args.z)
+    # FK the solution back: residual is ~0 for a reachable target, larger if the
+    # solver clamped an out-of-reach one.
+    residual = float(np.linalg.norm(foot_position(*q) - np.array([args.x, args.y, args.z])))
 
     print(f"target (mm): {args.x} {args.y} {args.z}")
-    print(f"angles (rad): {result.q[0]:.4f} {result.q[1]:.4f} {result.q[2]:.4f}")
-    print(f"converged={result.converged} iters={result.iterations} err={result.final_error_mm:.4f} mm")
+    print(f"angles (rad): {q[0]:.4f} {q[1]:.4f} {q[2]:.4f}")
+    print(f"FK residual: {residual:.4e} mm")
 
     if args.dry_run:
         return 0
 
-    q_dict = {name: float(v) for name, v in zip(CONFIG.joint_names, result.q)}
+    q_dict = {name: float(v) for name, v in zip(CONFIG.joint_names, q)}
     backend = build_backend(args)
     with backend:
         backend.set_joint_targets(q_dict)

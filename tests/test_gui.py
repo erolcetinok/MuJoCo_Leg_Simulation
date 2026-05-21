@@ -1,9 +1,9 @@
 """Smoke test: GuiApp constructs without opening a window.
 
 We don't drive the DPG event loop here (it needs a real display + main
-thread). The constructor exercises load_model, IK init, embedded-renderer
-plumbing, and slider-bound calculations — which is what's most likely to
-regress in a config or model change.
+thread). The constructor exercises load_model, preview-model setup,
+embedded-renderer plumbing, and slider-bound calculations — which is what's
+most likely to regress in a config or model change.
 """
 from __future__ import annotations
 
@@ -16,7 +16,8 @@ def test_gui_app_constructs():
 
     app = GuiApp(backend_kind="sim", port=None, view_mode="none")
     assert app.ik_model.nu == 3
-    assert app.ik is not None
+    assert len(app._joint_qpos_idx) == 3
+    assert app._target_default.shape == (3,)
     assert app.view_mode == "none"
 
 

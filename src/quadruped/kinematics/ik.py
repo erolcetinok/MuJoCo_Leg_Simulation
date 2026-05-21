@@ -1,10 +1,10 @@
-"""Inverse kinematics — analytic solver, the exact inverse of fk.foot_position."""
+"""Inverse kinematics — analytic solver, the inverse of fk.foot_position"""
 import numpy as np
 from quadruped.kinematics.fk import L1, L2, L3, rot_x
 
-PX = L1[0] + L2[0] + L3[0]        # the leg's x is fixed — Rx never changes an x-component
-LEN2 = np.hypot(L2[1], L2[2])     # length of L2 projected into the y-z plane
-LEN3 = np.hypot(L3[1], L3[2])     # length of L3 projected into the y-z plane
+PX = L1[0] + L2[0] + L3[0]        # the leg's x is fixed, Rx never changes x
+LEN2 = np.hypot(L2[1], L2[2])     # length  of L2 projected onto the y-z plane
+LEN3 = np.hypot(L3[1], L3[2])     # length of L3 projected onto the y-z plane
 PHI2 = np.arctan2(L2[2], L2[1])   # heading of L2 in the y-z plane
 PHI3 = np.arctan2(L3[2], L3[1])   # heading of L3 in the y-z plane
 

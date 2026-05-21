@@ -19,7 +19,6 @@ pose, which is the most useful visualization in every backend mode.
 """
 from __future__ import annotations
 
-import os
 import sys
 import time
 from typing import Optional
@@ -29,7 +28,8 @@ import mujoco
 
 from quadruped.config import CONFIG
 from quadruped.backends import ArduinoBackend, MirrorBackend, MujocoBackend, RobotBackend
-from quadruped.kinematics.ik import DampedLeastSquaresIK
+from quadruped.kinematics.fk import foot_position
+from quadruped.kinematics.ik import joint_angles
 from quadruped.sim.env import load_model
 
 
@@ -69,16 +69,10 @@ class GuiApp:
         self._render_w, self._render_h = render_size
         self.backend: Optional[RobotBackend] = None
 
-        # IK / preview model (always owned by the GUI, separate from any sim backend).
+        # Preview model — owned by the GUI for the embedded renderer, separate
+        # from any sim backend. Analytic IK itself needs no model.
         self.ik_model, self.ik_data = load_model()
-        self.ik = DampedLeastSquaresIK(
-            self.ik_model, self.ik_data,
-            foot_site_name=CONFIG.mjcf.foot_site_name,
-            target_site_name=CONFIG.mjcf.target_site_name,
-            joint_names=CONFIG.mjcf.joint_names,
-            max_iter=4,
-        )
-        self._target_default = np.asarray(CONFIG.target_site_offset_mm, dtype=float)
+        self._target_default = foot_position(0.0, 0.0, 0.0)
         self._joint_qpos_idx = {
             j.name: int(self.ik_model.joint(
                 next(n for n in CONFIG.mjcf.joint_names if n.startswith(j.name))
@@ -294,11 +288,12 @@ class GuiApp:
                         [dpg.get_value("cart_x"), dpg.get_value("cart_y"), dpg.get_value("cart_z")],
                         dtype=float,
                     )
-                    self.ik.set_mocap_target(target, self._target_default)
-                    result = self.ik.solve(target)
-                    q = {name: float(v) for name, v in zip(CONFIG.joint_names, result.q)}
+                    q = {name: float(v)
+                         for name, v in zip(CONFIG.joint_names, joint_angles(*target))}
+                    # Push the solved pose to the sliders and the preview model.
                     for name, v in q.items():
                         dpg.set_value(f"joint_{name}", v)
+                        self.ik_data.qpos[self._joint_qpos_idx[name]] = v
 
                 # Throttle outgoing commands (sim is cheap; hw is ~57600-baud bound).
                 if t0 - last_send >= self.dt:
