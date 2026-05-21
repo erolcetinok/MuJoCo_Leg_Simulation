@@ -49,8 +49,12 @@ class MujocoBackend(RobotBackend):
                     break
         mujoco.mj_forward(self.model, self.data)
         if self._use_viewer:
-            import mujoco.viewer  # noqa: F401 (delayed import)
-            self._viewer = mujoco.viewer.launch_passive(self.model, self.data)
+            # Import as `mj_viewer`, not `import mujoco.viewer`: the latter
+            # rebinds the name `mujoco` as a local, shadowing the module-level
+            # import and making every `mujoco.*` call above this line raise
+            # UnboundLocalError.
+            from mujoco import viewer as mj_viewer  # delayed import
+            self._viewer = mj_viewer.launch_passive(self.model, self.data)
 
     def disconnect(self) -> None:
         if self._viewer is not None:
