@@ -1,10 +1,5 @@
-"""Kinematics package — IK, FK, Jacobians, workspace.
-
-Re-export your public API here as you build it. Example shape:
-
-    from quadruped.kinematics.ik import YourIKSolver
-    from quadruped.kinematics.fk import foot_position
-    __all__ = ["YourIKSolver", "foot_position"]
-"""
+"""Kinematics package — forward and inverse kinematics for the leg."""
 from quadruped.kinematics.fk import foot_position
-__all__ = ["foot_position"]
+from quadruped.kinematics.ik import joint_angles
+
+__all__ = ["foot_position", "joint_angles"]
