@@ -1,4 +1,4 @@
-"""Inverse kinematics — analytic solver, the inverse of fk.foot_position"""
+"""Inverse kinematics, analytic solver, the inverse of fk.foot_position"""
 import numpy as np
 from quadruped.kinematics.fk import L1, L2, L3, rot_x
 
@@ -21,4 +21,4 @@ def joint_angles(x: float, y: float, z: float) -> tuple[float, float, float]:
     v = L2 + rot_x(knee) @ L3
     wing = np.arctan2(w[2], w[1]) - np.arctan2(v[2], v[1]) # solve for theta2
 
-    return shoulder, wing, knee
+    return shoulder, wing, knee # return the solved for joint angles
