@@ -5,6 +5,12 @@ Planned contents:
 - dual 1D Bezier swing-foot trajectory (see mjbots blog + FootTrajectoryPlanner)
 - timing/velocity scaling utilities
 
+Planned contents:
+- utilize cubic and quintic joint splines with a 5-3-5 spline trajectory maybe?
+- use two 1D Bezier curves for the swing-foot trajectory, use one for x and one for y so they can be configured individually
+- timing/velocity scaling utilities
+    - doing it based off of the duty factor as opposed to time
+
 Intentionally empty until Phase 2.
 """
 #  - mjbots: Improved swing trajectory (https://blog.mjbots.com/2020/06/05/improved-swing-trajectory/)
