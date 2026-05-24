@@ -51,10 +51,24 @@ class Bezier1D:
 
 class SwingFootTrajectory:
 
-    def __init__(self, lift_pos, touch_pos, apex_height, body_velocity=0.0):
-        self.x_bezier = Bezier1D() # PLACEHOLDER VALUE
-        self.y_bezier = Bezier1D() # PLACEHOLDER VALUE
-        self.z_bezier = Bezier1D() # PLACEHOLDER VALUE
+    def __init__(self, lift_pos, touch_pos, apex_height, T_swing, body_velocity=(0.0, 0.0)):
+        self.T_swing = T_swing
+
+        v_x, v_y = body_velocity
+        shift_x = v_x * T_swing / 3
+        shift_y = v_y * T_swing / 3
+
+        x_cps = [lift_pos[0], lift_pos[0] - shift_x, touch_pos[0] + shift_x, touch_pos[0],]
+        self.x_bezier = Bezier1D(x_cps)
+
+        y_cps = [lift_pos[1], lift_pos[1] - shift_y, touch_pos[1] + shift_y, touch_pos[1],]
+        self.y_bezier = Bezier1D(y_cps)
+
+        z_up_cps = [lift_pos[2], lift_pos[2], apex_height, apex_height,]
+        self.z_up_bezier = Bezier1D(z_up_cps)
+
+        z_down_cps = [apex_height, apex_height, touch_pos[2], touch_pos[2],]
+        self.z_down_bezier = Bezier1D(z_down_cps)
 
     def position_at(self, s):
 
