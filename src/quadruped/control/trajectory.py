@@ -48,3 +48,16 @@ class Bezier1D:
     def derivative(self):
         Q = self.degree * np.diff(self.control_points)
         return Bezier1D(Q)
+
+class SwingFootTrajectory:
+
+    def __init__(self, lift_pos, touch_pos, apex_height, body_velocity=0.0):
+        self.x_bezier = Bezier1D() # PLACEHOLDER VALUE
+        self.y_bezier = Bezier1D() # PLACEHOLDER VALUE
+        self.z_bezier = Bezier1D() # PLACEHOLDER VALUE
+
+    def position_at(self, s):
+
+    def velocity_at(self, s):
+
+
