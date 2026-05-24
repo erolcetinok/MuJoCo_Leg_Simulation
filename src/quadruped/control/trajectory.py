@@ -1,17 +1,17 @@
-"""Phase 2 home — trajectory generation.
+"""Swing and stance foot trajectories for quadruped gait.
 
-Planned contents:
-- cubic / quintic joint splines (scipy.interpolate.CubicSpline)
-- dual 1D Bezier swing-foot trajectory (see mjbots blog + FootTrajectoryPlanner)
-- timing/velocity scaling utilities
+Contents:
+- Bezier1D: 1D Bézier curve, evaluation and parameter-derivative.
+- SwingFootTrajectory: cubic Béziers per axis. X and Y span the full
+  swing; Z is two stitched cubics meeting at apex_height. Endpoint X/Y
+  velocities are -body_velocity for C¹ continuity with stance; endpoint
+  and apex Z velocities are zero.
+- StanceFootTrajectory: linear Béziers per axis. Foot moves at constant
+  -body_velocity in body frame; Z stays at touch_pos[2].
 
-Planned contents:
-- utilize cubic and quintic joint splines with a 5-3-5 spline trajectory maybe?
-- use two 1D Bezier curves for the swing-foot trajectory, use one for x and one for y so they can be configured individually
-- timing/velocity scaling utilities
-    - doing it based off of the duty factor as opposed to time
-
-Intentionally empty until Phase 2.
+Both trajectory classes share the same interface — position_at(s) and
+velocity_at(s) with s ∈ [0, 1] — so a gait scheduler can swap between
+them without caring which phase a leg is in.
 """
 
 import math
