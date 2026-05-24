@@ -95,4 +95,33 @@ class SwingFootTrajectory:
 
         return np.array([x_vel, y_vel, z_vel])
 
+class StanceFootTrajectory:
+
+    def __init__(self, touch_pos, T_stance, body_velocity=(0.0, 0.0)):
+        self.T_stance = T_stance
+
+        v_x, v_y = body_velocity
+
+        x_cps = [touch_pos[0], touch_pos[0] - v_x * T_stance]
+        self.x_bezier = Bezier1D(x_cps)
+
+        y_cps = [touch_pos[1], touch_pos[1] - v_y * T_stance]
+        self.y_bezier = Bezier1D(y_cps)
+
+        z_cps = [touch_pos[2], touch_pos[2]]
+        self.z_bezier = Bezier1D(z_cps)
+
+    def position_at(self, s):
+        x_pos = self.x_bezier(s)
+        y_pos = self.y_bezier(s)
+        z_pos = self.z_bezier(s)
+
+        return np.array([x_pos, y_pos, z_pos])
+
+    def velocity_at(self, s):
+        x_vel = self.x_bezier.derivative()(s) / self.T_stance
+        y_vel = self.y_bezier.derivative()(s) / self.T_stance
+        z_vel = self.z_bezier.derivative()(s) / self.T_stance
+
+        return np.array([x_vel, y_vel, z_vel])
 

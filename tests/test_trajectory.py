@@ -12,7 +12,7 @@ derive its control points:
 import numpy as np
 import pytest
 
-from quadruped.control.trajectory import Bezier1D, SwingFootTrajectory
+from quadruped.control.trajectory import Bezier1D, StanceFootTrajectory, SwingFootTrajectory
 
 
 # (lift_pos, touch_pos, apex_height, T_swing, body_velocity)
@@ -78,6 +78,66 @@ def test_endpoint_velocity_independent_of_T_swing():
     for traj in (slow, fast):
         assert np.isclose(traj.velocity_at(0.0)[0], -v_body[0])
         assert np.isclose(traj.velocity_at(1.0)[0], -v_body[0])
+
+
+# ---------------------------------------------------------------------------
+# StanceFootTrajectory
+# ---------------------------------------------------------------------------
+
+# (touch_pos, T_stance, body_velocity)
+STANCE_CONFIGS = [
+    # In-place hold
+    ((0.0, 0.0, 0.0), 0.3, (0.0, 0.0)),
+    # Forward walk
+    ((0.05, 0.0, 0.0), 0.3, (0.2, 0.0)),
+    # Combined forward + strafe
+    ((0.04, 0.02, 0.0), 0.25, (0.15, 0.1)),
+    # Foot on a raised surface
+    ((0.05, 0.0, 0.01), 0.3, (0.1, 0.0)),
+]
+
+
+@pytest.mark.parametrize("touch_pos, T, v", STANCE_CONFIGS)
+def test_stance_position_endpoints(touch_pos, T, v):
+    """Start at touch_pos; end at touch_pos - v_body * T_stance (= next swing's lift_pos)."""
+    traj = StanceFootTrajectory(touch_pos, T, v)
+    expected_end = np.array([touch_pos[0] - v[0] * T,
+                             touch_pos[1] - v[1] * T,
+                             touch_pos[2]])
+    assert np.allclose(traj.position_at(0.0), touch_pos)
+    assert np.allclose(traj.position_at(1.0), expected_end)
+
+
+@pytest.mark.parametrize("touch_pos, T, v", STANCE_CONFIGS)
+def test_stance_velocity_constant(touch_pos, T, v):
+    """Velocity is -body_velocity at every s; Z is always 0 (foot on ground)."""
+    traj = StanceFootTrajectory(touch_pos, T, v)
+    expected = np.array([-v[0], -v[1], 0.0])
+    for s in (0.0, 0.25, 0.5, 0.75, 1.0):
+        assert np.allclose(traj.velocity_at(s), expected)
+
+
+@pytest.mark.parametrize("touch_pos, T, v", STANCE_CONFIGS)
+def test_stance_z_constant(touch_pos, T, v):
+    """Z position never changes during stance — foot is planted on the ground."""
+    traj = StanceFootTrajectory(touch_pos, T, v)
+    for s in (0.0, 0.25, 0.5, 0.75, 1.0):
+        assert np.isclose(traj.position_at(s)[2], touch_pos[2])
+
+
+def test_stance_to_swing_handoff_is_c1():
+    """Stance's end velocity must equal swing's start velocity — same -v_body for both."""
+    touch = (0.05, 0.0, 0.0)
+    T_stance = 0.3
+    T_swing = 0.2
+    v = (0.2, 0.1)
+
+    stance = StanceFootTrajectory(touch, T_stance, v)
+    # Next swing lifts from where stance ended, lands at some new foothold.
+    lift = stance.position_at(1.0)
+    swing = SwingFootTrajectory(lift, (0.1, 0.05, 0.0), 0.04, T_swing, v)
+
+    assert np.allclose(stance.velocity_at(1.0), swing.velocity_at(0.0))
 
 
 # ---------------------------------------------------------------------------
