@@ -13,6 +13,10 @@ Planned contents:
 
 Intentionally empty until Phase 2.
 """
+
+import math
+import numpy as np
+
 #  - mjbots: Improved swing trajectory (https://blog.mjbots.com/2020/06/05/improved-swing-trajectory/)
 #  - Stanford Pupper Controller Description (https://pupper.readthedocs.io/en/latest/reference/controller.html)
 #  - Stanford Pupper Lab 7 — Control & Simulation
@@ -27,3 +31,20 @@ Intentionally empty until Phase 2.
 #  - Parameterizable and Jerk-Limited Trajectories with Blending (TUM)
 #  (https://mediatum.ub.tum.de/doc/1614584/xs7blx45xiwr7lqfc0z3fr01k.trajectoryBlending.pdf)
 
+class Bezier1D:
+    """A 1D Bézier curve evaluated with s on the interval [0, 1]"""
+
+    def __init__(self, control_points):
+        self.control_points = np.asarray(control_points, dtype=float)
+        self.degree = len(self.control_points) - 1
+
+    def __call__(self, s):
+        result = 0
+        for i in range(self.degree + 1):
+            term = math.comb(self.degree, i) * (1 - s)**(self.degree - i) * s**i * self.control_points[i]
+            result += term
+        return result
+
+    def derivative(self):
+        Q = self.degree * np.diff(self.control_points)
+        return Bezier1D(Q)
