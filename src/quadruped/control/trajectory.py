@@ -71,7 +71,28 @@ class SwingFootTrajectory:
         self.z_down_bezier = Bezier1D(z_down_cps)
 
     def position_at(self, s):
+        x_pos = self.x_bezier(s)
+        y_pos = self.y_bezier(s)
+        if s <= 0.5:
+            s_local = 2 * s
+            z_pos = self.z_up_bezier(s_local)
+        else:
+            s_local = 2 * s - 1
+            z_pos = self.z_down_bezier(s_local)
+
+        return np.array([x_pos, y_pos, z_pos])
+
 
     def velocity_at(self, s):
+        x_vel = self.x_bezier.derivative()(s) / self.T_swing
+        y_vel = self.y_bezier.derivative()(s) / self.T_swing
+        if s <= 0.5:
+            s_local = 2 * s
+            z_vel = self.z_up_bezier.derivative()(s_local) * 2 / self.T_swing
+        else:
+            s_local = 2 * s - 1
+            z_vel = self.z_down_bezier.derivative()(s_local) * 2 / self.T_swing
+
+        return np.array([x_vel, y_vel, z_vel])
 
 
