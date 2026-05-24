@@ -19,10 +19,16 @@ class MujocoBackend(RobotBackend):
         *,
         use_viewer: bool = False,
         step: bool = True,
+        step_dt: float = 0.0,
     ) -> None:
+        """If step_dt > 0, set_joint_targets steps mj_step repeatedly until
+        sim time has advanced by step_dt seconds — letting a wall-clock-paced
+        control loop keep the viewer running at real-time speed. Default 0
+        keeps the legacy single-step behavior."""
         self._xml = xml
         self._use_viewer = use_viewer
         self._step = step
+        self._step_dt = step_dt
         self.model: mujoco.MjModel | None = None
         self.data: mujoco.MjData | None = None
         self._viewer = None
@@ -68,10 +74,20 @@ class MujocoBackend(RobotBackend):
             if ai is None:
                 continue
             self.data.ctrl[ai] = float(value)
-        if self._step:
-            mujoco.mj_step(self.model, self.data)
-        else:
+        if not self._step:
             mujoco.mj_forward(self.model, self.data)
+        elif self._step_dt > 0:
+            # Step until sim time has advanced by step_dt so the simulation
+            # keeps up with a wall-clock-paced control loop. Sync the viewer
+            # each step so motion appears at real-time speed.
+            target_time = self.data.time + self._step_dt
+            while self.data.time < target_time:
+                mujoco.mj_step(self.model, self.data)
+                if self._viewer is not None and self._viewer.is_running():
+                    self._viewer.sync()
+            return
+        else:
+            mujoco.mj_step(self.model, self.data)
         if self._viewer is not None and self._viewer.is_running():
             self._viewer.sync()
 

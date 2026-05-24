@@ -24,16 +24,20 @@ def add_backend_args(parser: argparse.ArgumentParser, *, default: str = "sim") -
                         help="Launch the MuJoCo passive viewer when running sim/mirror.")
 
 
-def build_backend(args: argparse.Namespace) -> RobotBackend:
-    """Return an unconnected backend. Caller is responsible for connect/disconnect."""
+def build_backend(args: argparse.Namespace, *, sim_step_dt: float = 0.0) -> RobotBackend:
+    """Return an unconnected backend. Caller is responsible for connect/disconnect.
+
+    sim_step_dt is forwarded to MujocoBackend so wall-clock-paced control
+    loops can keep the viewer running at real-time speed.
+    """
     if args.backend == "sim":
-        return MujocoBackend(xml=args.xml, use_viewer=args.viewer)
+        return MujocoBackend(xml=args.xml, use_viewer=args.viewer, step_dt=sim_step_dt)
     if args.backend == "hw":
         port = args.port or os.environ.get("SERIAL_PORT")
         return ArduinoBackend(port=port, baud=args.baud)
     if args.backend == "mirror":
         port = args.port or os.environ.get("SERIAL_PORT")
-        sim = MujocoBackend(xml=args.xml, use_viewer=args.viewer)
+        sim = MujocoBackend(xml=args.xml, use_viewer=args.viewer, step_dt=sim_step_dt)
         hw = ArduinoBackend(port=port, baud=args.baud)
         return MirrorBackend([sim, hw], truth_source=1)
     raise ValueError(f"unknown backend: {args.backend!r}")
