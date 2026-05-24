@@ -1,7 +1,13 @@
 """Full quadruped gait demo — walk or trot, IK-driven, live in the viewer.
 
-Replaces scripts/ik_quadruped.py. The IK math is unchanged; the gait math
-is now in quadruped.control.gait.
+Drives the four legs through GaitScheduler (cubic Bezier swing trajectories
++ Raibert foothold planning), feeds the resulting per-leg foot positions to
+MuJoCo mocap targets, and runs Jacobian IK to track them.
+
+The body itself is fixed in this demo; --vx and --vy command an effective body
+velocity that the scheduler uses for foothold planning. With both at 0 the
+feet step in place; nonzero velocity makes the feet step forward/back as if
+the body were translating beneath them.
 """
 from __future__ import annotations
 
@@ -13,13 +19,7 @@ import numpy as np
 import mujoco
 import mujoco.viewer
 
-from quadruped.control.gait import (
-    TROT_PARAMS,
-    TROT_PHASE_OFFSETS,
-    WALK_PARAMS,
-    WALK_PHASE_OFFSETS,
-    compute_gait_offset,
-)
+from quadruped.control.gait import GaitScheduler, TROT_PRESET, WALK_PRESET
 from quadruped.sim.env import model_path
 
 LEGS = ("FL", "FR", "BL", "BR")
@@ -55,12 +55,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gait", choices=["walk", "trot"], default="walk")
     parser.add_argument("--dt", type=float, default=0.01)
+    parser.add_argument("--vx", type=float, default=0.0,
+                        help="Commanded body forward velocity (units/sec; 0 = in-place stepping)")
+    parser.add_argument("--vy", type=float, default=0.0,
+                        help="Commanded body lateral velocity (units/sec)")
     args = parser.parse_args()
 
-    params, offsets = (
-        (WALK_PARAMS, WALK_PHASE_OFFSETS) if args.gait == "walk"
-        else (TROT_PARAMS, TROT_PHASE_OFFSETS)
-    )
+    preset = WALK_PRESET if args.gait == "walk" else TROT_PRESET
 
     model = mujoco.MjModel.from_xml_path(str(model_path("quadruped")))
     data = mujoco.MjData(model)
@@ -68,17 +69,18 @@ def main() -> int:
 
     alpha, damping, tol = 0.3, 1e-2, 0.5
 
+    # The body is fixed at the origin in this demo, so the initial mocap
+    # positions (world frame) double as the legs' home positions (body frame).
     initial_mocap = {leg: data.mocap_pos[info[leg]["mocap_id"]].copy() for leg in LEGS}
-    t = 0.0
+    scheduler = GaitScheduler(**preset, home_positions=initial_mocap)
+    body_velocity = (args.vx, args.vy)
+
     with mujoco.viewer.launch_passive(model, data) as viewer:
         mujoco.mj_forward(model, data)
         while viewer.is_running():
-            phase = 2 * np.pi * params["step_frequency"] * t
+            scheduler.advance(args.dt, body_velocity)
             for leg in LEGS:
-                lp = (phase + offsets[leg]) % (2 * np.pi)
-                data.mocap_pos[info[leg]["mocap_id"]] = (
-                    initial_mocap[leg] + compute_gait_offset(leg, lp, params)
-                )
+                data.mocap_pos[info[leg]["mocap_id"]] = scheduler.foot_position(leg)
             mujoco.mj_forward(model, data)
 
             for leg in LEGS:
@@ -103,7 +105,6 @@ def main() -> int:
             mujoco.mj_forward(model, data)
             viewer.sync()
             time.sleep(args.dt)
-            t += args.dt
     return 0
 
 

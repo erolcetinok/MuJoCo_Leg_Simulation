@@ -10,7 +10,7 @@ Contents:
   -body_velocity in body frame; Z stays at touch_pos[2].
 
 Both trajectory classes share the same interface — position_at(s) and
-velocity_at(s) with s ∈ [0, 1] — so a gait scheduler can swap between
+velocity_at(s) with s within the range [0, 1] — so a gait scheduler can swap between
 them without caring which phase a leg is in.
 
 References:
