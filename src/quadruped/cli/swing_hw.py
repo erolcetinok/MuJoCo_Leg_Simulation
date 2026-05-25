@@ -1,26 +1,27 @@
-"""Play a swing-foot trajectory on hardware (or sim).
+"""Play a full gait cycle (swing + stance) on hardware or sim.
 
-Drives the single leg from --from to --to along a SwingFootTrajectory (cubic
-Bezier, apex_height above lift_z at the midpoint), sampling at --rate Hz.
+Drives the single leg through swing-stance cycles, sampling at --rate Hz:
+  - swing:  SwingFootTrajectory (cubic Bezier) from --from to --to, apex
+            at --apex above lift_z at the midpoint.
+  - stance: StanceFootTrajectory (linear) from --to back to --from at
+            ground level.
 
-Pre-poses to --from and waits 1 s before starting, so the first sample isn't
-itself a step input from wherever the leg happened to be.
+body_velocity is chosen so the stance ends exactly at the lift position
+and the next cycle begins where it left off.
+
+Pre-poses to --from and waits 1 s before starting, so the first sample
+isn't itself a step input from wherever the leg happened to be.
 
 Examples:
-    # Sim dry-run (just prints samples)
+    # Sim dry-run (prints all samples in one cycle)
     quad-swing-hw --from 0 -175 -50 --to 20 -175 -50 --dry-run
 
-    # Sim with viewer
-    quad-swing-hw --from 0 -175 -50 --to 20 -175 -50 --backend sim --viewer
+    # Sim with viewer, looping
+    quad-swing-hw --from -30 -175 -50 --to 30 -175 -50 --apex 30 --duration 0.8 --backend sim --viewer --loop
 
-    # Real hardware, single play
-    quad-swing-hw --from 0 -175 -50 --to 20 -175 -50 --backend hw
-
-    # Real hardware, loop A<->B until Ctrl+C
-    quad-swing-hw --from 0 -175 -50 --to 20 -175 -50 --backend hw --loop
+    # Real hardware, looping cycles
+    quad-swing-hw --from -30 -175 -50 --to 30 -175 -50 --backend hw --loop
 """
-from __future__ import annotations
-
 import argparse
 import sys
 import time
@@ -29,7 +30,7 @@ import numpy as np
 
 from quadruped.cli._backends import add_backend_args, build_backend
 from quadruped.config import CONFIG
-from quadruped.control.trajectory import SwingFootTrajectory
+from quadruped.control.trajectory import StanceFootTrajectory, SwingFootTrajectory
 from quadruped.kinematics.fk import foot_position
 from quadruped.kinematics.ik import joint_angles
 
@@ -50,17 +51,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--from", dest="lift", type=float, nargs=3, metavar=("X", "Y", "Z"),
-                        required=True, help="Lift-off position (mm)")
+                        required=True, help="Swing lift-off / stance end position (mm)")
     parser.add_argument("--to", dest="touch", type=float, nargs=3, metavar=("X", "Y", "Z"),
-                        required=True, help="Touchdown position (mm)")
+                        required=True, help="Swing touchdown / stance start position (mm)")
     parser.add_argument("--apex", type=float, default=10.0,
-                        help="Apex height above lift_z (mm; default 10)")
+                        help="Swing apex height above lift_z (mm; default 10)")
     parser.add_argument("--duration", type=float, default=0.3,
                         help="Swing duration in seconds (default 0.3)")
+    parser.add_argument("--stance-duration", type=float, default=None,
+                        help="Stance duration in seconds (default = --duration)")
     parser.add_argument("--rate", type=float, default=50.0,
                         help="Sample rate in Hz (default 50)")
     parser.add_argument("--loop", action="store_true",
-                        help="Loop A->B->A->B... instead of one-shot.")
+                        help="Loop cycles until Ctrl+C (else one cycle then exit).")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print samples; do not open any backend.")
     add_backend_args(parser, default="sim")
@@ -69,27 +72,37 @@ def main() -> int:
     lift = tuple(args.lift)
     touch = tuple(args.touch)
     apex_height = lift[2] + args.apex
+    T_swing = args.duration
+    T_stance = args.stance_duration if args.stance_duration is not None else T_swing
+    # Close the cycle: pick body_velocity so stance brings the foot from
+    # touch back to lift over T_stance.
+    body_velocity = ((touch[0] - lift[0]) / T_stance, (touch[1] - lift[1]) / T_stance)
 
-    # Sanity-check IK at the three corner positions before opening any port.
     print("IK pre-check:")
     _print_ik_check("lift",  *lift)
     _print_ik_check("apex",  (lift[0] + touch[0]) / 2, (lift[1] + touch[1]) / 2, apex_height)
     _print_ik_check("touch", *touch)
 
-    traj_fwd  = SwingFootTrajectory(lift, touch, apex_height, args.duration)
-    traj_back = SwingFootTrajectory(touch, lift, apex_height, args.duration)
+    swing = SwingFootTrajectory(lift, touch, apex_height, T_swing, body_velocity)
+    stance = StanceFootTrajectory(touch, T_stance, body_velocity)
 
     dt = 1.0 / args.rate
-    n_samples = int(round(args.duration * args.rate)) + 1
-    print(f"\nTrajectory: {n_samples} samples over {args.duration:.3f} s "
+    n_swing = int(round(T_swing * args.rate)) + 1
+    n_stance = int(round(T_stance * args.rate)) + 1
+    print(f"\nCycle: swing {n_swing} samples / {T_swing:.3f} s + "
+          f"stance {n_stance} samples / {T_stance:.3f} s "
           f"({args.rate:.0f} Hz, dt = {dt*1000:.1f} ms)")
+    print(f"body velocity: ({body_velocity[0]:.1f}, {body_velocity[1]:.1f}) mm/s")
+
+    phases = (("swing", swing, n_swing), ("stance", stance, n_stance))
 
     if args.dry_run:
-        print("\nDry-run samples (fwd):")
-        for i in range(n_samples):
-            s = i / (n_samples - 1)
-            p = traj_fwd.position_at(s)
-            print(f"  s={s:.3f}  x={p[0]:7.2f}  y={p[1]:7.2f}  z={p[2]:7.2f}")
+        for name, traj, n in phases:
+            print(f"\nDry-run samples ({name}):")
+            for i in range(n):
+                s = i / (n - 1)
+                p = traj.position_at(s)
+                print(f"  s={s:.3f}  x={p[0]:7.2f}  y={p[1]:7.2f}  z={p[2]:7.2f}")
         return 0
 
     backend = build_backend(args)
@@ -101,14 +114,13 @@ def main() -> int:
         try:
             cycle = 0
             while True:
-                direction = "fwd" if cycle % 2 == 0 else "back"
-                traj = traj_fwd if cycle % 2 == 0 else traj_back
-                print(f"cycle {cycle} ({direction})")
-                for i in range(n_samples):
-                    s = i / (n_samples - 1)
-                    p = traj.position_at(s)
-                    backend.set_joint_targets(_angles_dict(float(p[0]), float(p[1]), float(p[2]))[0])
-                    time.sleep(dt)
+                print(f"cycle {cycle}")
+                for name, traj, n in phases:
+                    for i in range(n):
+                        s = i / (n - 1)
+                        p = traj.position_at(s)
+                        backend.set_joint_targets(_angles_dict(float(p[0]), float(p[1]), float(p[2]))[0])
+                        time.sleep(dt)
                 cycle += 1
                 if not args.loop:
                     break
