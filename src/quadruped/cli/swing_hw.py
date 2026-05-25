@@ -117,7 +117,11 @@ def main() -> int:
             while True:
                 print(f"cycle {cycle}")
                 for name, traj, n in phases:
-                    for i in range(n):
+                    # Skip i=0: it equals the previous phase's last sample
+                    # (or the pre-pose for the very first phase). Sending
+                    # it again makes the motor hold for one dt at every
+                    # phase boundary.
+                    for i in range(1, n):
                         s = i / (n - 1)
                         p = traj.position_at(s)
                         backend.set_joint_targets(_angles_dict(float(p[0]), float(p[1]), float(p[2]))[0])

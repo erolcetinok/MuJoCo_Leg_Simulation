@@ -66,7 +66,10 @@ void setup() {
     dxl.torqueOff(id);
     dxl.setOperatingMode(id, OP_POSITION);
     dxl.torqueOn(id);
-    dxl.writeControlTableItem(PROFILE_VELOCITY, id, 40);
+    // profile_velocity = 0 → no trapezoidal cap; motor tracks each
+    // streamed goal as fast as it can. Required for smooth streaming
+    // control (Stanford Pupper convention).
+    dxl.writeControlTableItem(PROFILE_VELOCITY, id, 0);
   }
   cmd.println("dynamixels ready");
   cmd.println("mode: usb command (q,q1,q2,q3)");
