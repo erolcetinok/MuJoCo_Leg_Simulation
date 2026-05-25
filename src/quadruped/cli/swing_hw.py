@@ -113,6 +113,7 @@ def main() -> int:
 
         try:
             cycle = 0
+            deadline = time.perf_counter()
             while True:
                 print(f"cycle {cycle}")
                 for name, traj, n in phases:
@@ -120,7 +121,14 @@ def main() -> int:
                         s = i / (n - 1)
                         p = traj.position_at(s)
                         backend.set_joint_targets(_angles_dict(float(p[0]), float(p[1]), float(p[2]))[0])
-                        time.sleep(dt)
+                        deadline += dt
+                        slack = deadline - time.perf_counter()
+                        if slack > 0:
+                            time.sleep(slack)
+                        else:
+                            # Fell behind (round-trip > dt). Reset deadline so
+                            # we don't sprint indefinitely trying to catch up.
+                            deadline = time.perf_counter()
                 cycle += 1
                 if not args.loop:
                     break

@@ -1,9 +1,17 @@
 """Serial bridge to firmware/leg_controller/leg_controller.ino.
 
 Wire format: ``q,<q1>,<q2>,<q3>\\n`` (radians, shoulder/wing/knee), one line per
-command. Firmware echoes ``ok <q1> <q2> <q3>`` after clamping. The firmware
-does not stream state, so read_joint_state returns empty dicts; that limitation
-is acceptable for now and called out in the docstring.
+command. Firmware echoes ``ok <q1> <q2> <q3>`` after clamping.
+
+set_joint_targets is fire-and-forget: it does not wait for a reply. The
+firmware uses SoftwareSerial on the UNO R3 for host I/O, and the
+hardware-Serial DXL transactions starve that interrupt enough to drop
+~15% of host bytes during fast control loops. Blocking on a per-command
+reply would hang for the full readline timeout on every drop. Replies
+that have already arrived are drained into ``last_reply`` opportunistically
+so jog/GUI status text still works; we just never wait.
+
+read_joint_state returns empty dicts — the firmware doesn't stream state.
 """
 from __future__ import annotations
 
@@ -58,8 +66,14 @@ class ArduinoBackend(RobotBackend):
             ) from exc
         line = "q," + ",".join(f"{v}" for v in values) + "\n"
         self._ser.write(line.encode("ascii"))
-        reply = self._ser.readline().decode("ascii", errors="ignore").strip()
-        self._last_reply = reply
+        # Opportunistic, non-blocking drain. Do not wait for THIS command's
+        # reply — see module docstring.
+        n = self._ser.in_waiting
+        if n:
+            chunk = self._ser.read(n).decode("ascii", errors="ignore")
+            lines = [s.strip() for s in chunk.splitlines() if s.strip()]
+            if lines:
+                self._last_reply = lines[-1]
 
     def read_joint_state(self) -> tuple[dict[str, float], dict[str, float]]:
         # Firmware does not stream state today. Future: parse a queryable
