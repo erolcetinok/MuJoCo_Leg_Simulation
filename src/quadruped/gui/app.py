@@ -38,11 +38,11 @@ VIEW_MODES = ("embedded", "external", "none")
 
 def _build_backend(kind: str, port: Optional[str], external_viewer: bool) -> RobotBackend:
     if kind == "sim":
-        return MujocoBackend(use_viewer=external_viewer, step=False)
+        return MujocoBackend(use_viewer=external_viewer)
     if kind == "hw":
         return ArduinoBackend(port=port)
     if kind == "mirror":
-        sim = MujocoBackend(use_viewer=external_viewer, step=False)
+        sim = MujocoBackend(use_viewer=external_viewer)
         hw = ArduinoBackend(port=port)
         return MirrorBackend([sim, hw], truth_source=1)
     raise ValueError(f"unknown backend: {kind!r}")

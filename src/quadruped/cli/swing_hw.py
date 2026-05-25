@@ -92,9 +92,7 @@ def main() -> int:
             print(f"  s={s:.3f}  x={p[0]:7.2f}  y={p[1]:7.2f}  z={p[2]:7.2f}")
         return 0
 
-    # Pass dt through to MujocoBackend so the sim advances real-time per command,
-    # otherwise mj_step only ticks 2 ms per call and the viewer barely moves.
-    backend = build_backend(args, sim_step_dt=dt)
+    backend = build_backend(args)
     with backend:
         print(f"\nPre-pose -> {lift}, settling 1.0 s ...")
         backend.set_joint_targets(_angles_dict(*lift)[0])
