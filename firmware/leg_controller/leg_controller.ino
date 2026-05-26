@@ -1,8 +1,9 @@
-// Reads joint angles over the USB-to-TTL adapter and drives the 3 dynamixels.
-// Protocol: q,<q1>,<q2>,<q3>  (radians, order: shoulder, wing, knee)
+// Reads joint angles over the USB-to-TTL adapter and drives N_JOINTS dynamixels.
+// Protocol: q,<q0>,<q1>,...,<q[N_JOINTS-1]>  (radians, joint order = YAML order
+// = FL,FR,BL,BR × shoulder,wing,knee; see robot_config.h for the index map).
 //
 // Hardware:
-//   - Arduino UNO R3 + ROBOTIS Dynamixel Shield + 3× XL430-W250-T motors
+//   - Arduino UNO R3 + ROBOTIS Dynamixel Shield + 12× XL430-W250-T motors
 //   - CP2102 / CH340 / FTDI USB-to-TTL adapter wired:
 //       adapter TX → Arduino D7   (Arduino's SoftwareSerial RX)
 //       adapter RX → Arduino D8   (Arduino's SoftwareSerial TX)
@@ -25,20 +26,40 @@
 // Joint limits, motor IDs, offsets, and bauds all come from robot_config.h,
 // generated from ../../configs/robot.yaml by scripts/codegen.py — do not
 // hand-edit the .h.
+//
+// All N_JOINTS goal positions are written to the DXL bus in a single
+// syncWrite packet per host line. This is the Stanford Pupper convention
+// and cuts bus time vs N_JOINTS separate setGoalPosition() calls, which is
+// what frees up the SoftwareSerial RX ISR enough to receive host bytes
+// reliably (~15% drop rate seen on the single-leg path was caused by per-motor
+// writes blocking the bus).
 
 #include <SoftwareSerial.h>
 #include <Dynamixel2Arduino.h>
 
 #include "robot_config.h"
 
-#define MAX_LINE 64
+#define MAX_LINE 256              // 12 floats × ~16 chars + commas + 'q,' fits
 #define DXL_PROTOCOL_VERSION 2.0f
 #define DXL_DIR_PIN 2
+
+// XL430 goal-position control table entry: addr 116, 4 bytes (int32_t ticks).
+#define GOAL_POSITION_ADDR 116
+#define GOAL_POSITION_LEN  4
 
 SoftwareSerial cmd(7, 8);  // RX=D7 ← adapter TX, TX=D8 → adapter RX
 
 Dynamixel2Arduino dxl(Serial, DXL_DIR_PIN);
 using namespace ControlTableItem;
+
+// Pre-built syncWrite descriptor. Reused every line — the param struct is
+// large (~200 B), so allocate once at file scope rather than per-call.
+typedef struct __attribute__((packed)) {
+  int32_t goal_position;
+} sw_data_t;
+
+static ParamForSyncWriteInst_t sw_info;
+static sw_data_t sw_data[N_JOINTS];
 
 void processLine(char* line);
 
@@ -48,7 +69,8 @@ void setup() {
   dxl.setPortProtocolVersion(DXL_PROTOCOL_VERSION);
   cmd.println("the controller is ready");
 
-  for (int id = ID_SHOULDER; id <= ID_KNEE; id++) {
+  for (int i = 0; i < N_JOINTS; i++) {
+    uint8_t id = IDS[i];
     if (!dxl.ping(id)) {
       cmd.print("? no servo ID ");
       cmd.println(id);
@@ -71,8 +93,23 @@ void setup() {
     // control (Stanford Pupper convention).
     dxl.writeControlTableItem(PROFILE_VELOCITY, id, 0);
   }
-  cmd.println("dynamixels ready");
-  cmd.println("mode: usb command (q,q1,q2,q3)");
+
+  // Build the syncWrite descriptor once. Per-tick we only refresh the
+  // goal_position payload, not the ID list.
+  sw_info.packet.p_buf = nullptr;
+  sw_info.packet.is_completed = false;
+  sw_info.addr = GOAL_POSITION_ADDR;
+  sw_info.addr_length = GOAL_POSITION_LEN;
+  sw_info.id_count = N_JOINTS;
+  for (int i = 0; i < N_JOINTS; i++) {
+    sw_info.xel[i].id = IDS[i];
+    sw_info.xel[i].p_data = (uint8_t*)&sw_data[i].goal_position;
+  }
+
+  cmd.print("dynamixels ready (");
+  cmd.print(N_JOINTS);
+  cmd.println(" joints)");
+  cmd.println("mode: usb command (q,q0,...,qN-1)");
 }
 
 void loop() {
@@ -101,45 +138,50 @@ void loop() {
 void processLine(char* line) {
   // Arduino AVR's default sscanf has no %f support, so parse with strtod.
   if (line[0] != 'q' || line[1] != ',') {
-    cmd.println("? bad format; use q,q1,q2,q3");
+    cmd.println("? bad format; use q,q0,q1,...");
     return;
   }
+  float q[N_JOINTS];
   char* p = line + 2;
   char* end;
-  float q1 = strtod(p, &end);
-  if (end == p || *end != ',') {
-    cmd.println("? bad format; use q,q1,q2,q3");
-    return;
+  for (int i = 0; i < N_JOINTS; i++) {
+    q[i] = strtod(p, &end);
+    if (end == p) {
+      cmd.print("? bad format at index ");
+      cmd.println(i);
+      return;
+    }
+    p = end;
+    if (i < N_JOINTS - 1) {
+      if (*p != ',') {
+        cmd.print("? missing comma at index ");
+        cmd.println(i);
+        return;
+      }
+      p++;
+    }
   }
-  p = end + 1;
-  float q2 = strtod(p, &end);
-  if (end == p || *end != ',') {
-    cmd.println("? bad format; use q,q1,q2,q3");
-    return;
-  }
-  p = end + 1;
-  float q3 = strtod(p, &end);
-  if (end == p) {
-    cmd.println("? bad format; use q,q1,q2,q3");
-    return;
+
+  // Clamp, apply sign + offset, convert to ticks, stage into the syncWrite
+  // payload. Ticks: 0..4095 over 360°, so deg → ticks = deg * 4096 / 360.
+  for (int i = 0; i < N_JOINTS; i++) {
+    float qi = constrain(q[i], LIMITS[i][0], LIMITS[i][1]);
+    float deg = DIRS[i] * qi * 180.0f / PI + OFFSETS_DEG[i];
+    sw_data[i].goal_position = (int32_t)(deg * 4096.0f / 360.0f + 0.5f);
   }
 
-  q1 = constrain(q1, LIMIT_SHOULDER[0], LIMIT_SHOULDER[1]);
-  q2 = constrain(q2, LIMIT_WING[0], LIMIT_WING[1]);
-  q3 = constrain(q3, LIMIT_KNEE[0], LIMIT_KNEE[1]);
+  // One packet for all N_JOINTS — the whole point of the multi-leg refactor.
+  bool ok = dxl.syncWrite(&sw_info);
 
-  float d1 = q1 * 180.0f / PI + OFFSET_SHOULDER_DEG;
-  float d2 = q2 * 180.0f / PI + OFFSET_WING_DEG;
-  float d3 = q3 * 180.0f / PI + OFFSET_KNEE_DEG;
-
-  dxl.setGoalPosition(ID_SHOULDER, d1, UNIT_DEGREE);
-  dxl.setGoalPosition(ID_WING, d2, UNIT_DEGREE);
-  dxl.setGoalPosition(ID_KNEE, d3, UNIT_DEGREE);
-
-  cmd.print("ok ");
-  cmd.print(q1);
-  cmd.print(" ");
-  cmd.print(q2);
-  cmd.print(" ");
-  cmd.println(q3);
+  if (ok) {
+    cmd.print("ok");
+    for (int i = 0; i < N_JOINTS; i++) {
+      cmd.print(' ');
+      cmd.print(q[i], 3);
+    }
+    cmd.println();
+  } else {
+    cmd.print("? syncWrite failed err=");
+    cmd.println(dxl.getLastLibErrCode());
+  }
 }

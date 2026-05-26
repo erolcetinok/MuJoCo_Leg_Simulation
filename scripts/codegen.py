@@ -47,18 +47,36 @@ HEADER_TMPL = ENV.from_string(
 #define HOST_BAUD {{ serial.baud_host }}
 #define DXL_BAUD {{ serial.baud_dxl }}
 
-{% for j in joints -%}
-#define ID_{{ j.name|upper }} {{ j.motor_id }}
-{% endfor %}
-{% for j in joints -%}
-static const float OFFSET_{{ j.name|upper }}_DEG = {{ "%.6f"|format(j.offset_deg) }}f;
-{% endfor %}
-{% for j in joints -%}
-static const float LIMIT_{{ j.name|upper }}[2] = { {{ "%.11f"|format(j.limit_rad[0]) }}f, {{ "%.11f"|format(j.limit_rad[1]) }}f };
-{% endfor -%}
-{% for j in joints -%}
-static const float DIR_{{ j.name|upper }} = {{ "%.1f"|format(j.direction|float) }}f;
-{% endfor %}
+#define N_JOINTS {{ joints|length }}
+#define N_LEGS {{ legs|length }}
+
+// Joint order is the canonical YAML order: legs FL, FR, BL, BR × joints
+// shoulder, wing, knee. The host wire format and the syncWrite packet both
+// follow this index order.
+static const uint8_t IDS[N_JOINTS] = {
+{%- for j in joints %}
+  {{ j.motor_id }}{% if not loop.last %},{% endif %}  // [{{ loop.index0 }}] {{ j.name }}
+{%- endfor %}
+};
+
+static const float OFFSETS_DEG[N_JOINTS] = {
+{%- for j in joints %}
+  {{ "%.6f"|format(j.offset_deg) }}f{% if not loop.last %},{% endif %}  // [{{ loop.index0 }}] {{ j.name }}
+{%- endfor %}
+};
+
+static const float DIRS[N_JOINTS] = {
+{%- for j in joints %}
+  {{ "%.1f"|format(j.direction|float) }}f{% if not loop.last %},{% endif %}  // [{{ loop.index0 }}] {{ j.name }}
+{%- endfor %}
+};
+
+static const float LIMITS[N_JOINTS][2] = {
+{%- for j in joints %}
+  { {{ "%.11f"|format(j.limit_rad[0]) }}f, {{ "%.11f"|format(j.limit_rad[1]) }}f }{% if not loop.last %},{% endif %}  // [{{ loop.index0 }}] {{ j.name }}
+{%- endfor %}
+};
+
 #endif  // ROBOT_CONFIG_H
 """
 )
@@ -71,17 +89,24 @@ runtime has no pyyaml dependency. Regenerate with `python scripts/codegen.py`.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Tuple
 
 
 @dataclass(frozen=True)
 class Joint:
-    name: str
+    name: str            # e.g. "shoulder_FL"  — canonical key used everywhere
+    leg: str             # "FL" | "FR" | "BL" | "BR"
+    joint: str           # "shoulder" | "wing" | "knee"
     motor_id: int
     limit_rad: Tuple[float, float]
     offset_deg: float
     direction: int
+
+    @property
+    def mjcf_name(self) -> str:
+        """MJCF joint name follows `<joint>_joint_<leg>` convention."""
+        return f"{self.joint}_joint_{self.leg}"
 
 
 @dataclass(frozen=True)
@@ -109,6 +134,7 @@ class RobotConfig:
     robot: str
     description_xml: str
     serial: Serial
+    legs: Tuple[str, ...]
     joints: Tuple[Joint, ...]
     links_mm: LinksMM
     foot_site_offset_mm: Tuple[float, float, float]
@@ -125,14 +151,29 @@ class RobotConfig:
     def joint_names(self) -> Tuple[str, ...]:
         return tuple(j.name for j in self.joints)
 
+    def joints_for_leg(self, leg: str) -> Tuple[Joint, ...]:
+        """All joints on `leg`, in canonical YAML order (shoulder, wing, knee)."""
+        legs = {j.leg for j in self.joints}
+        if leg not in legs:
+            raise KeyError(f"unknown leg: {leg!r} (known: {sorted(legs)})")
+        return tuple(j for j in self.joints if j.leg == leg)
+
+    def leg_joint_names(self, leg: str) -> Tuple[str, ...]:
+        return tuple(j.name for j in self.joints_for_leg(leg))
+
 
 CONFIG: RobotConfig = RobotConfig(
     robot={{ robot|repr }},
     description_xml={{ description_xml|repr }},
     serial=Serial(baud_host={{ serial.baud_host }}, baud_dxl={{ serial.baud_dxl }}),
+    legs=(
+{% for leg in legs -%}
+        {{ leg|repr }},
+{% endfor -%}
+    ),
     joints=(
 {% for j in joints -%}
-        Joint(name={{ j.name|repr }}, motor_id={{ j.motor_id }}, limit_rad=({{ "%.11f"|format(j.limit_rad[0]) }}, {{ "%.11f"|format(j.limit_rad[1]) }}), offset_deg={{ "%.6f"|format(j.offset_deg) }}, direction={{ j.direction }}),
+        Joint(name={{ j.name|repr }}, leg={{ j.leg|repr }}, joint={{ j.joint|repr }}, motor_id={{ j.motor_id }}, limit_rad=({{ "%.11f"|format(j.limit_rad[0]) }}, {{ "%.11f"|format(j.limit_rad[1]) }}), offset_deg={{ "%.6f"|format(j.offset_deg) }}, direction={{ j.direction }}),
 {% endfor -%}
     ),
     links_mm=LinksMM(
