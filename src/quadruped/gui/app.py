@@ -73,12 +73,14 @@ class GuiApp:
         # from any sim backend. Analytic IK itself needs no model.
         self.ik_model, self.ik_data = load_model()
         self._target_default = foot_position(0.0, 0.0, 0.0)
-        self._joint_qpos_idx = {
-            j.name: int(self.ik_model.joint(
-                next(n for n in CONFIG.mjcf.joint_names if n.startswith(j.name))
-            ).qposadr[0])
-            for j in CONFIG.joints
-        }
+        self._joint_qpos_idx = {}
+        for j in CONFIG.joints:
+            try:
+                self._joint_qpos_idx[j.name] = int(
+                    self.ik_model.joint(j.mjcf_name).qposadr[0]
+                )
+            except KeyError:
+                continue
 
         # Embedded renderer state — created lazily after DPG context exists.
         self._renderer: Optional[mujoco.Renderer] = None

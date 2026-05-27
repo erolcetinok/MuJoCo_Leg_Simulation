@@ -27,12 +27,14 @@ def main() -> int:
 
     model, data = load_model()
     # qpos addresses for the leg joints, in CONFIG order (shoulder, wing, knee).
-    qpos_idx = [
-        int(model.joint(
-            next(n for n in CONFIG.mjcf.joint_names if n.startswith(j.name))
-        ).qposadr[0])
-        for j in CONFIG.joints
-    ]
+    # Only joints actually present in the loaded MJCF survive — lets this demo
+    # work against both single_leg.xml and the full quadruped.
+    qpos_idx = []
+    for j in CONFIG.joints:
+        try:
+            qpos_idx.append(int(model.joint(j.mjcf_name).qposadr[0]))
+        except KeyError:
+            continue
 
     # Perturb the foot around its neutral (zero-pose) position, in the hip frame.
     target_center = foot_position(0.0, 0.0, 0.0)

@@ -1,110 +1,155 @@
-"""Full quadruped gait demo — walk or trot, IK-driven, live in the viewer.
+"""Full quadruped gait demo — walk or trot through any RobotBackend.
 
-Drives the four legs through GaitScheduler (cubic Bezier swing trajectories
-+ Raibert foothold planning), feeds the resulting per-leg foot positions to
-MuJoCo mocap targets, and runs Jacobian IK to track them.
+Drives all four legs through GaitScheduler (cubic Bezier swing + linear
+stance, Raibert foothold planning). Each tick:
+  1. scheduler.advance(dt, body_velocity)
+  2. per leg: body-frame foot position → leg-local via inverse shoulder yaw
+  3. closed-form IK (kinematics.ik.joint_angles) → (shoulder, wing, knee)
+  4. assemble 12-DOF joint target dict and call backend.set_joint_targets()
 
-The body itself is fixed in this demo; --vx and --vy command an effective body
-velocity that the scheduler uses for foothold planning. With both at 0 the
-feet step in place; nonzero velocity makes the feet step forward/back as if
-the body were translating beneath them.
+This unifies sim and hardware: the dict is the same; only the backend differs.
+
+Per-leg shoulder pose is read once from the MJCF at startup (geometric
+truth). The canonical resting foot position in any leg's local frame
+comes from configs/robot.yaml (target_site_offset_mm).
+
+Examples:
+    # MuJoCo viewer, stepping in place (walk)
+    quad-gait-demo --backend sim --viewer
+
+    # Trot with small body forward velocity
+    quad-gait-demo --backend sim --viewer --gait trot --vx 50
+
+    # Real hardware (verify in sim first!)
+    quad-gait-demo --backend hw -p /dev/cu.usbserial-XXXX
 """
-from __future__ import annotations
-
 import argparse
+import math
 import sys
 import time
 
-import numpy as np
 import mujoco
-import mujoco.viewer
+import numpy as np
 
+from quadruped.backends import MujocoBackend
+from quadruped.cli._backends import add_backend_args, build_backend
+from quadruped.config import CONFIG
 from quadruped.control.gait import GaitScheduler, TROT_PRESET, WALK_PRESET
+from quadruped.kinematics.ik import joint_angles
 from quadruped.sim.env import model_path
 
-LEGS = ("FL", "FR", "BL", "BR")
+
+def _leg_yaw_rad(model: mujoco.MjModel, leg: str) -> float:
+    # All four shoulder bodies use a pure z-yaw quaternion, so
+    # quat = (cos(θ/2), 0, 0, sin(θ/2)).
+    w, _, _, z = model.body(f"shoulder_{leg}").quat
+    return 2.0 * float(math.atan2(z, w))
 
 
-def _build_leg_info(model: mujoco.MjModel):
-    info = {}
-    for leg in LEGS:
-        info[leg] = {
-            "foot_site_id": model.site(f"foot_site_{leg}").id,
-            "target_site_id": model.site(f"target_site_{leg}").id,
-            "mocap_id": model.body(f"ik_target_{leg}").mocapid[0],
-            "dof_idxs": np.array([
-                model.joint(f"shoulder_joint_{leg}").dofadr[0],
-                model.joint(f"wing_joint_{leg}").dofadr[0],
-                model.joint(f"knee_joint_{leg}").dofadr[0],
-            ], dtype=int),
-            "qpos_idxs": np.array([
-                model.joint(f"shoulder_joint_{leg}").qposadr[0],
-                model.joint(f"wing_joint_{leg}").qposadr[0],
-                model.joint(f"knee_joint_{leg}").qposadr[0],
-            ], dtype=int),
-            "jids": np.array([
-                model.joint(f"shoulder_joint_{leg}").id,
-                model.joint(f"wing_joint_{leg}").id,
-                model.joint(f"knee_joint_{leg}").id,
-            ], dtype=int),
-        }
-    return info
+def _rotz_xy(theta: float) -> np.ndarray:
+    c, s = math.cos(theta), math.sin(theta)
+    return np.array([[c, -s], [s, c]])
+
+
+def _build_leg_pose(model: mujoco.MjModel) -> dict:
+    pose = {}
+    for leg in CONFIG.legs:
+        body = model.body(f"shoulder_{leg}")
+        pose[leg] = (np.asarray(body.pos, dtype=float).copy(), _leg_yaw_rad(model, leg))
+    return pose
+
+
+def _body_to_local(p_body: np.ndarray, shoulder_pos: np.ndarray, yaw: float) -> np.ndarray:
+    delta = p_body - shoulder_pos
+    xy = _rotz_xy(-yaw) @ delta[:2]
+    return np.array([xy[0], xy[1], delta[2]])
+
+
+def _any_viewer_closed(backend) -> bool:
+    """True if `backend` owns a passive viewer that has been closed by the user.
+
+    Returns False for backends with no viewer (so hw / sim-without-viewer
+    runs proceed). Walks one level of MirrorBackend.backends.
+    """
+    candidates = getattr(backend, "backends", [backend])
+    for b in candidates:
+        if isinstance(b, MujocoBackend) and b._viewer is not None and not b.viewer_alive():
+            return True
+    return False
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--gait", choices=["walk", "trot"], default="walk")
-    parser.add_argument("--dt", type=float, default=0.01)
+    parser.add_argument("--rate", type=float, default=50.0,
+                        help="Control rate in Hz (default 50)")
     parser.add_argument("--vx", type=float, default=0.0,
-                        help="Commanded body forward velocity (units/sec; 0 = in-place stepping)")
+                        help="Body forward velocity in body x (mm/s; 0 = step in place)")
     parser.add_argument("--vy", type=float, default=0.0,
-                        help="Commanded body lateral velocity (units/sec)")
+                        help="Body lateral velocity in body y (mm/s)")
+    parser.add_argument("--duration", type=float, default=None,
+                        help="Stop after this many seconds (default: run until Ctrl+C / viewer close)")
+    add_backend_args(parser, default="sim")
     args = parser.parse_args()
 
     preset = WALK_PRESET if args.gait == "walk" else TROT_PRESET
+    dt = 1.0 / args.rate
 
-    model = mujoco.MjModel.from_xml_path(str(model_path("quadruped")))
-    data = mujoco.MjData(model)
-    info = _build_leg_info(model)
+    # MJCF is loaded once just to extract per-leg shoulder pose (the geometric
+    # source of truth for leg layout). Cheap even for hw-only mode.
+    model = mujoco.MjModel.from_xml_path(str(model_path()))
+    pose = _build_leg_pose(model)
 
-    alpha, damping, tol = 0.3, 1e-2, 0.5
+    # Canonical resting foot position in any leg's local frame.
+    home_local = np.array(CONFIG.target_site_offset_mm, dtype=float)
+    home_body = {}
+    for leg in CONFIG.legs:
+        shoulder_pos, yaw = pose[leg]
+        xy_body = _rotz_xy(yaw) @ home_local[:2]
+        home_body[leg] = shoulder_pos + np.array([xy_body[0], xy_body[1], home_local[2]])
 
-    # The body is fixed at the origin in this demo, so the initial mocap
-    # positions (world frame) double as the legs' home positions (body frame).
-    initial_mocap = {leg: data.mocap_pos[info[leg]["mocap_id"]].copy() for leg in LEGS}
-    scheduler = GaitScheduler(**preset, home_positions=initial_mocap)
+    scheduler = GaitScheduler(**preset, home_positions=home_body)
     body_velocity = (args.vx, args.vy)
 
-    with mujoco.viewer.launch_passive(model, data) as viewer:
-        mujoco.mj_forward(model, data)
-        while viewer.is_running():
-            scheduler.advance(args.dt, body_velocity)
-            for leg in LEGS:
-                data.mocap_pos[info[leg]["mocap_id"]] = scheduler.foot_position(leg)
-            mujoco.mj_forward(model, data)
+    print(f"gait={args.gait}  rate={args.rate:g} Hz  vx={args.vx:g}  vy={args.vy:g}  backend={args.backend}")
+    for leg in CONFIG.legs:
+        sp, yaw = pose[leg]
+        print(f"  {leg}: shoulder@({sp[0]:6.1f},{sp[1]:6.1f},{sp[2]:6.1f}) "
+              f"yaw={math.degrees(yaw):+7.2f}°  "
+              f"home_body=({home_body[leg][0]:7.1f},{home_body[leg][1]:7.1f},{home_body[leg][2]:7.1f})")
 
-            for leg in LEGS:
-                d = info[leg]
-                p_foot = data.site_xpos[d["foot_site_id"]].copy()
-                p_target = data.site_xpos[d["target_site_id"]].copy()
-                err = p_target - p_foot
-                err_norm = float(np.linalg.norm(err))
-                if err_norm > tol:
-                    jacp = np.zeros((3, model.nv))
-                    mujoco.mj_jacSite(model, data, jacp, None, d["foot_site_id"])
-                    J = jacp[:, d["dof_idxs"]]
-                    JJt = J @ J.T
-                    dq = J.T @ np.linalg.solve(JJt + damping * np.eye(3), err)
-                    scale = min(1.0, err_norm / 10.0)
-                    q = data.qpos[d["qpos_idxs"]].copy() + alpha * scale * dq
-                    for i, jid in enumerate(d["jids"]):
-                        lo, hi = model.jnt_range[jid]
-                        q[i] = float(np.clip(q[i], lo, hi))
-                    data.qpos[d["qpos_idxs"]] = q
+    backend = build_backend(args)
+    with backend:
+        t0 = time.perf_counter()
+        deadline = t0
+        try:
+            while True:
+                scheduler.advance(dt, body_velocity)
+                targets: dict[str, float] = {}
+                for leg in CONFIG.legs:
+                    p_body = scheduler.foot_position(leg)
+                    shoulder_pos, yaw = pose[leg]
+                    p_local = _body_to_local(p_body, shoulder_pos, yaw)
+                    q_sh, q_wg, q_kn = joint_angles(p_local[0], p_local[1], p_local[2])
+                    targets[f"shoulder_{leg}"] = float(q_sh)
+                    targets[f"wing_{leg}"] = float(q_wg)
+                    targets[f"knee_{leg}"] = float(q_kn)
+                backend.set_joint_targets(targets)
 
-            mujoco.mj_forward(model, data)
-            viewer.sync()
-            time.sleep(args.dt)
+                if _any_viewer_closed(backend):
+                    break
+                if args.duration is not None and (time.perf_counter() - t0) >= args.duration:
+                    break
+
+                deadline += dt
+                slack = deadline - time.perf_counter()
+                if slack > 0:
+                    time.sleep(slack)
+                else:
+                    deadline = time.perf_counter()
+        except KeyboardInterrupt:
+            print("\nStopped by user.")
     return 0
 
 

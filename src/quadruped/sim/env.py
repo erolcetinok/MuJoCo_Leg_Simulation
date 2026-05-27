@@ -28,21 +28,14 @@ def model_path(name: str | None = None) -> Path:
 
 def _assert_joint_ranges(model: mujoco.MjModel, cfg: RobotConfig) -> None:
     for joint in cfg.joints:
-        # MJCF joint names use _joint suffix (see cfg.mjcf.joint_names)
-        mjcf_name = next(
-            (n for n in cfg.mjcf.joint_names if n.startswith(joint.name)),
-            None,
-        )
-        if mjcf_name is None:
-            continue
         try:
-            jid = model.joint(mjcf_name).id
+            jid = model.joint(joint.mjcf_name).id
         except KeyError:
             continue  # joint not in this model (e.g. single_leg.xml on quadruped cfg)
         lo, hi = model.jnt_range[jid]
         elo, ehi = joint.limit_rad
         assert math.isclose(lo, elo, abs_tol=1e-6) and math.isclose(hi, ehi, abs_tol=1e-6), (
-            f"joint {mjcf_name!r}: MJCF range ({lo}, {hi}) does not match "
+            f"joint {joint.mjcf_name!r}: MJCF range ({lo}, {hi}) does not match "
             f"YAML limit_rad ({elo}, {ehi}). Regenerate codegen or fix MJCF."
         )
 

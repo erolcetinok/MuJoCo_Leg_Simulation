@@ -29,13 +29,11 @@ class MujocoBackend(RobotBackend):
     def connect(self) -> None:
         self.model, self.data = load_model(self._xml)
         for joint in CONFIG.joints:
-            mjcf_name = next(
-                (n for n in CONFIG.mjcf.joint_names if n.startswith(joint.name)),
-                None,
-            )
-            if mjcf_name is None:
+            try:
+                jnt = self.model.joint(joint.mjcf_name)
+            except KeyError:
+                # joint not in this model (e.g. single_leg.xml on a quadruped cfg)
                 continue
-            jnt = self.model.joint(mjcf_name)
             self._qpos_idx[joint.name] = int(jnt.qposadr[0])
             self._qvel_idx[joint.name] = int(jnt.dofadr[0])
         mujoco.mj_forward(self.model, self.data)

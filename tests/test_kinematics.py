@@ -11,7 +11,7 @@ import pytest
 
 from quadruped.kinematics.fk import foot_position
 from quadruped.kinematics.ik import joint_angles
-from quadruped.sim.env import load_model
+from quadruped.sim.env import load_model, model_path
 
 # (shoulder, wing, knee) in radians — kept within the joint limits.
 POSES = [
@@ -33,7 +33,9 @@ def _mujoco_foot(model, data, angles):
 
 @pytest.mark.parametrize("angles", POSES)
 def test_fk_matches_mujoco(angles):
-    model, data = load_model()
+    # FK is leg-local — single_leg.xml is the canonical leg-local rig (no
+    # per-leg shoulder yaw to factor out).
+    model, data = load_model(model_path("single_leg"))
 
     # Hip-frame origin = shoulder hinge anchor in world. Read from the model
     # so the test stays correct if the leg's mount position ever changes.
