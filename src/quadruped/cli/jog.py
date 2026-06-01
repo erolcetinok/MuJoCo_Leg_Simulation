@@ -20,12 +20,17 @@ def parse_three_floats(line: str) -> tuple[float, float, float] | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--leg", choices=CONFIG.legs, default="FL",
+                        help="Leg to jog (default FL). The three angles map to that "
+                             "leg's shoulder, wing, knee; other legs hold their cached pose.")
     add_backend_args(parser, default="hw")
     args = parser.parse_args()
 
+    names = CONFIG.leg_joint_names(args.leg)
     backend = build_backend(args)
     with backend:
-        print(f"Connected ({args.backend}). Type three radians ({', '.join(CONFIG.joint_names)}). Ctrl-D to exit.")
+        print(f"Connected ({args.backend}). Jogging {args.leg}: type three radians "
+              f"({', '.join(names)}). Ctrl-D to exit.")
         while True:
             try:
                 line = input("> ").strip()
@@ -38,7 +43,7 @@ def main() -> int:
             if angles is None:
                 print("  ? need three numbers, e.g.  0.5 -0.3 0.2", file=sys.stderr)
                 continue
-            q_dict = dict(zip(CONFIG.joint_names, angles))
+            q_dict = dict(zip(names, angles))
             try:
                 backend.set_joint_targets(q_dict)
             except Exception as e:  # noqa: BLE001 — surface anything serial throws
