@@ -39,12 +39,15 @@ joints:
 # in description/quadruped.xml).
 # FK composes these directly: foot = Rz(t1).(L1 + Rx(t2).(L2 + Rx(t3).L3))
 links_mm:
-  shoulder_to_wing: [-20.25, -23.25, 21.4]
+  # shoulder_to_wing is wing-joint position in shoulder-body local frame.
+  # With shoulder_joint pos="0 0 0" the shoulder body origin IS the joint axis,
+  # so the FK chain starts there and L1 is simply (thigh pos) + (wing joint local).
+  shoulder_to_wing: [0.0, -38.25, 21.4]
   wing_to_knee: [0.0, -107.5, -23.25]
   knee_to_foot: [21.0, 0.0, -110.0]
 
 foot_site_offset_mm: [21, -12, 0]
-target_site_offset_mm: [20, -175, -50]
+target_site_offset_mm: [0, -175, -50]
 
 mjcf:
   # MJCF sites are per-leg suffixed: foot_site_FL, target_site_FL, ...

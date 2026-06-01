@@ -9,7 +9,6 @@
     <option gravity="0 0 -981"/>
 
     <asset>
-        <mesh name="body_mesh"     file="meshes/body.STL"/>
         <mesh name="shoulder_mesh" file="meshes/shoulder.STL"/>
         <mesh name="thigh_mesh"    file="meshes/thigh.STL"/>
         <mesh name="foot_mesh"     file="meshes/foot.STL"/>
@@ -33,7 +32,9 @@
     <default>
         <!-- Joint defaults -->
         <default class="shoulder_joint">
-            <joint type="hinge" axis="0 0 1" pos="20.25 -15 0"
+            <!-- Joint axis at shoulder body origin so it pivots at the body
+                 corner (visual alignment) and matches fk.py's chain start. -->
+            <joint type="hinge" axis="0 0 1" pos="0 0 0"
                    limited="true" range="-1.57079632679 1.57079632679"/>
         </default>
         <default class="wing_joint">
@@ -85,100 +86,101 @@
 <!--        <site name="world_y" type="capsule" fromto="0 0 0  0 3 0" size="0.05" rgba="0 1 0 1"/>-->
 <!--        <site name="world_z" type="capsule" fromto="0 0 0  0 0 3" size="0.05" rgba="0 0 1 1"/>-->
 
-        <body name="stage" pos="0 0 133.35"> <!--133.35-->
-            
+        <!-- Body: X-config spider layout. 150×150 mm axis-aligned plate; +x = forward,
+             +y = left, +z = up. Four shoulders at the corners; each leg's outward
+             direction points along its body diagonal (NE / SE / NW / SW). Body sits
+             at z = 50 mm so the home-pose feet (50 mm below shoulders) rest on the
+             ground plane. -->
+        <body name="body" pos="0 0 50">
+            <geom type="box" size="75 75 15" material="robot_mat"/>
 
-            <body name="body" pos="-100 100 -71.4"> <!---21.4 is default-->
-                <geom class="mesh_geom" mesh="body_mesh"/>
-                
-                <!-- FRONT LEFT LEG (FL) -->
-                <body name="shoulder_FL" pos="120.25 -28 0" quat="0 0 0 1">
-                    <joint name="shoulder_joint_FL" class="shoulder_joint"/>
-                    <geom class="mesh_geom" mesh="shoulder_mesh"/>
+            <!-- FRONT LEFT (FL) — shoulder at (+75, +75), leg points NE (yaw=135°) -->
+            <body name="shoulder_FL" pos="75 75 0" quat="0.3826834 0 0 0.9238795">
+                <joint name="shoulder_joint_FL" class="shoulder_joint"/>
+                <geom class="mesh_geom" mesh="shoulder_mesh"/>
 
-                    <body name="thigh_FL" pos="0 -35.75 -13.1">
-                        <joint name="wing_joint_FL" class="wing_joint"/>
-                        <geom class="mesh_geom" mesh="thigh_mesh"/>
+                <body name="thigh_FL" pos="0 -35.75 -13.1">
+                    <joint name="wing_joint_FL" class="wing_joint"/>
+                    <geom class="mesh_geom" mesh="thigh_mesh"/>
 
-                        <body name="foot_FL" pos="0 -98 -98.75">
-                            <joint name="knee_joint_FL" class="knee_joint"/>
-                            <geom class="mesh_geom" mesh="foot_mesh"/>
+                    <body name="foot_FL" pos="0 -98 -98.75">
+                        <joint name="knee_joint_FL" class="knee_joint"/>
+                        <geom class="mesh_geom" mesh="foot_mesh"/>
 
-                            <site name="foot_site_FL" class="foot_site" rgba="1 0 0 1"/>
-                        </body>
+                        <site name="foot_site_FL" class="foot_site" rgba="1 0 0 1"/>
                     </body>
                 </body>
+            </body>
 
-                <!-- FRONT RIGHT LEG (FR) -->
-                <body name="shoulder_FR" pos="172 -120.25 0" quat="0.7071068 0 0 0.7071068">
-                    <joint name="shoulder_joint_FR" class="shoulder_joint"/>
-                    <geom class="mesh_geom" mesh="shoulder_mesh"/>
+            <!-- FRONT RIGHT (FR) — shoulder at (+75, -75), leg points SE (yaw=45°) -->
+            <body name="shoulder_FR" pos="75 -75 0" quat="0.9238795 0 0 0.3826834">
+                <joint name="shoulder_joint_FR" class="shoulder_joint"/>
+                <geom class="mesh_geom" mesh="shoulder_mesh"/>
 
-                    <body name="thigh_FR" pos="0 -35.75 -13.1">
-                        <joint name="wing_joint_FR" class="wing_joint"/>
-                        <geom class="mesh_geom" mesh="thigh_mesh"/>
+                <body name="thigh_FR" pos="0 -35.75 -13.1">
+                    <joint name="wing_joint_FR" class="wing_joint"/>
+                    <geom class="mesh_geom" mesh="thigh_mesh"/>
 
-                        <body name="foot_FR" pos="0 -98 -98.75">
-                            <joint name="knee_joint_FR" class="knee_joint"/>
-                            <geom class="mesh_geom" mesh="foot_mesh"/>
+                    <body name="foot_FR" pos="0 -98 -98.75">
+                        <joint name="knee_joint_FR" class="knee_joint"/>
+                        <geom class="mesh_geom" mesh="foot_mesh"/>
 
-                            <site name="foot_site_FR" class="foot_site" rgba="0 1 0 1"/>
-                        </body>
+                        <site name="foot_site_FR" class="foot_site" rgba="0 1 0 1"/>
                     </body>
                 </body>
+            </body>
 
-                <!-- BACK LEFT LEG (BL) -->
-                <body name="shoulder_BL" pos="28 -79.75 0" quat="-0.7071068  0 0 0.7071068">
-                    <joint name="shoulder_joint_BL" class="shoulder_joint"/>
-                    <geom class="mesh_geom" mesh="shoulder_mesh"/>
+            <!-- BACK LEFT (BL) — shoulder at (-75, +75), leg points NW (yaw=225°) -->
+            <body name="shoulder_BL" pos="-75 75 0" quat="0.3826834 0 0 -0.9238795">
+                <joint name="shoulder_joint_BL" class="shoulder_joint"/>
+                <geom class="mesh_geom" mesh="shoulder_mesh"/>
 
-                    <body name="thigh_BL" pos="0 -35.75 -13.1">
-                        <joint name="wing_joint_BL" class="wing_joint"/>
-                        <geom class="mesh_geom" mesh="thigh_mesh"/>
+                <body name="thigh_BL" pos="0 -35.75 -13.1">
+                    <joint name="wing_joint_BL" class="wing_joint"/>
+                    <geom class="mesh_geom" mesh="thigh_mesh"/>
 
-                        <body name="foot_BL" pos="0 -98 -98.75">
-                            <joint name="knee_joint_BL" class="knee_joint"/>
-                            <geom class="mesh_geom" mesh="foot_mesh"/>
+                    <body name="foot_BL" pos="0 -98 -98.75">
+                        <joint name="knee_joint_BL" class="knee_joint"/>
+                        <geom class="mesh_geom" mesh="foot_mesh"/>
 
-                            <site name="foot_site_BL" class="foot_site" rgba="0 0 1 1"/>
-                        </body>
+                        <site name="foot_site_BL" class="foot_site" rgba="0 0 1 1"/>
                     </body>
                 </body>
+            </body>
 
-                <!-- BACK RIGHT LEG (BR) -->
-                <body name="shoulder_BR" pos="79.75 -172 0" quat="1 0 0 0">
-                    <joint name="shoulder_joint_BR" class="shoulder_joint"/>
-                    <geom class="mesh_geom" mesh="shoulder_mesh"/>
+            <!-- BACK RIGHT (BR) — shoulder at (-75, -75), leg points SW (yaw=315°) -->
+            <body name="shoulder_BR" pos="-75 -75 0" quat="0.9238795 0 0 -0.3826834">
+                <joint name="shoulder_joint_BR" class="shoulder_joint"/>
+                <geom class="mesh_geom" mesh="shoulder_mesh"/>
 
-                    <body name="thigh_BR" pos="0 -35.75 -13.1">
-                        <joint name="wing_joint_BR" class="wing_joint"/>
-                        <geom class="mesh_geom" mesh="thigh_mesh"/>
+                <body name="thigh_BR" pos="0 -35.75 -13.1">
+                    <joint name="wing_joint_BR" class="wing_joint"/>
+                    <geom class="mesh_geom" mesh="thigh_mesh"/>
 
-                        <body name="foot_BR" pos="0 -98 -98.75">
-                            <joint name="knee_joint_BR" class="knee_joint"/>
-                            <geom class="mesh_geom" mesh="foot_mesh"/>
+                    <body name="foot_BR" pos="0 -98 -98.75">
+                        <joint name="knee_joint_BR" class="knee_joint"/>
+                        <geom class="mesh_geom" mesh="foot_mesh"/>
 
-                            <site name="foot_site_BR" class="foot_site" rgba="1 1 0 1"/>
-                        </body>
+                        <site name="foot_site_BR" class="foot_site" rgba="1 1 0 1"/>
                     </body>
                 </body>
-
             </body>
 
         </body>
 
-        <!-- IK targets for each leg -->
-        <body name="ik_target_FL" mocap="true" pos="-0.75 217.75 0.1">
+        <!-- IK targets for each leg, placed at the X-config home-pose foot positions:
+             feet sit exactly on the body diagonals at (±198.7, ±198.7), giving a
+             4-fold symmetric foot rectangle (front pair at x=+198.7, rear at -198.7). -->
+        <body name="ik_target_FL" mocap="true" pos="198.7 198.7 0.1">
             <site name="target_site_FL" class="target_site"/>
         </body>
-        <!-- Front Right leg IK target -->
-        <body name="ik_target_FR" mocap="true" pos="217.75 0.75 0.1">
+        <body name="ik_target_FR" mocap="true" pos="198.7 -198.7 0.1">
             <site name="target_site_FR" class="target_site"/>
         </body>
-        <body name="ik_target_BL" mocap="true" pos="-217.75 -0.75 0.1">
+        <body name="ik_target_BL" mocap="true" pos="-198.7 198.7 0.1">
             <site name="target_site_BL" class="target_site"/>
         </body>
-        <body name="ik_target_BR" mocap="true" pos="0.75 -217.75 0.1">
+        <body name="ik_target_BR" mocap="true" pos="-198.7 -198.7 0.1">
             <site name="target_site_BR" class="target_site"/>
         </body>
     </worldbody>
@@ -205,4 +207,3 @@
         <position name="knee_actuator_BR" joint="knee_joint_BR" class="knee_actuator"/>
     </actuator>
 </mujoco>
-
