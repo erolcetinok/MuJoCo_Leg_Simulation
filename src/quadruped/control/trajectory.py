@@ -70,10 +70,15 @@ class SwingFootTrajectory:
         y_cps = [lift_pos[1], lift_pos[1] - shift_y, touch_pos[1] + shift_y, touch_pos[1],]
         self.y_bezier = Bezier1D(y_cps)
 
-        z_up_cps = [lift_pos[2], lift_pos[2], apex_height, apex_height,]
+        # apex_height is a lift ABOVE the foot, not an absolute z — place the apex
+        # above the higher endpoint so apex_height=15 means 15 mm of clearance,
+        # not a flight up to z=+15 in the body frame (which saturated the wing).
+        apex_z = max(lift_pos[2], touch_pos[2]) + apex_height
+
+        z_up_cps = [lift_pos[2], lift_pos[2], apex_z, apex_z,]
         self.z_up_bezier = Bezier1D(z_up_cps)
 
-        z_down_cps = [apex_height, apex_height, touch_pos[2], touch_pos[2],]
+        z_down_cps = [apex_z, apex_z, touch_pos[2], touch_pos[2],]
         self.z_down_bezier = Bezier1D(z_down_cps)
 
     def position_at(self, s):

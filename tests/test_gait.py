@@ -105,14 +105,14 @@ def test_at_rest_stance_foot_at_home():
 
 
 def test_at_rest_swing_apex_reaches_apex_height():
-    """v_body = 0 ⇒ swing X/Y stay at home but Z arcs up to apex_height at s=0.5."""
+    """v_body = 0 ⇒ swing X/Y stay at home but Z arcs up to apex_height ABOVE home at s=0.5."""
     gs = _walk()
     # FL mid-swing: local_phase = duty_factor + 0.5 * (1 - duty_factor) = 0.875
     gs.phase = 0.875
     pos = gs.foot_position("FL")
     assert np.isclose(pos[0], HOME["FL"][0])
     assert np.isclose(pos[1], HOME["FL"][1])
-    assert np.isclose(pos[2], WALK_PRESET["apex_height"])
+    assert np.isclose(pos[2], HOME["FL"][2] + WALK_PRESET["apex_height"])
 
 
 @pytest.mark.parametrize("v_body", [(0.0, 0.0), (50.0, 0.0), (-30.0, 20.0)])

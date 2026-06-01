@@ -71,7 +71,9 @@ def main() -> int:
 
     lift = tuple(args.lift)
     touch = tuple(args.touch)
-    apex_height = lift[2] + args.apex
+    # SwingFootTrajectory treats apex_height as a lift ABOVE the foot, so pass
+    # --apex straight through. apex_z is the resulting absolute z, for the IK check.
+    apex_z = max(lift[2], touch[2]) + args.apex
     T_swing = args.duration
     T_stance = args.stance_duration if args.stance_duration is not None else T_swing
     # Close the cycle: pick body_velocity so stance brings the foot from
@@ -80,10 +82,10 @@ def main() -> int:
 
     print("IK pre-check:")
     _print_ik_check("lift",  *lift)
-    _print_ik_check("apex",  (lift[0] + touch[0]) / 2, (lift[1] + touch[1]) / 2, apex_height)
+    _print_ik_check("apex",  (lift[0] + touch[0]) / 2, (lift[1] + touch[1]) / 2, apex_z)
     _print_ik_check("touch", *touch)
 
-    swing = SwingFootTrajectory(lift, touch, apex_height, T_swing, body_velocity)
+    swing = SwingFootTrajectory(lift, touch, args.apex, T_swing, body_velocity)
     stance = StanceFootTrajectory(touch, T_stance, body_velocity)
 
     dt = 1.0 / args.rate

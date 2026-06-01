@@ -5,7 +5,7 @@ derive its control points:
   * endpoint positions match lift_pos / touch_pos
   * endpoint X/Y velocities match -body_velocity (C^1 with stance)
   * endpoint Z velocity is zero (no vertical body motion / soft landing)
-  * apex Z position equals apex_height
+  * apex Z position is apex_height above the higher endpoint (a relative lift)
   * apex Z velocity is zero (foot momentarily stationary at top of arc)
   * endpoint physical velocities are independent of T_swing (chain-rule check)
 """
@@ -38,7 +38,7 @@ def test_position_endpoints(lift_pos, touch_pos, apex, T, v):
 @pytest.mark.parametrize("lift_pos, touch_pos, apex, T, v", CONFIGS)
 def test_position_apex(lift_pos, touch_pos, apex, T, v):
     traj = SwingFootTrajectory(lift_pos, touch_pos, apex, T, v)
-    assert np.isclose(traj.position_at(0.5)[2], apex)
+    assert np.isclose(traj.position_at(0.5)[2], max(lift_pos[2], touch_pos[2]) + apex)
 
 
 @pytest.mark.parametrize("lift_pos, touch_pos, apex, T, v", CONFIGS)
