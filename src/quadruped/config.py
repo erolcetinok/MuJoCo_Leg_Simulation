@@ -105,7 +105,7 @@ Joint(name='wing_BR', leg='BR', joint='wing', motor_id=11, limit_rad=(-0.8726646
 Joint(name='knee_BR', leg='BR', joint='knee', motor_id=12, limit_rad=(-2.00712863979, 1.57079632679), offset_deg=180.000000, direction=1),
 ),
     links_mm=LinksMM(
-        shoulder_to_wing=(0.0, -38.25, 21.4),
+        shoulder_to_wing=(-20.25, -23.25, 21.4),
         wing_to_knee=(0.0, -107.5, -23.25),
         knee_to_foot=(21.0, 0.0, -110.0),
     ),

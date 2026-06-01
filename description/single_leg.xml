@@ -27,10 +27,11 @@
         <site name="world_y" type="capsule" fromto="0 0 0  0 3 0" size="0.05" rgba="0 1 0 1"/>
         <site name="world_z" type="capsule" fromto="0 0 0  0 0 3" size="0.05" rgba="0 0 1 1"/>
 
-        <!-- Shoulder fixed to the world. Joint axis is at the body origin, so
-             body pos = FK hip-frame origin: MuJoCo foot_site == fk() + (0, 0, 300). -->
-        <body name="shoulder" pos="0 0 300">
-            <joint name="shoulder_joint" type="hinge" axis="0 0 1" pos="0 0 0"
+        <!-- Shoulder fixed to the world. Body pos chosen so the shoulder hinge
+             axis sits at world (0, 0, 300) — that point is the FK hip-frame
+             origin, so MuJoCo foot_site == fk() + (0, 0, 300). -->
+        <body name="shoulder" pos="-20.25 15 300">
+            <joint name="shoulder_joint" type="hinge" axis="0 0 1" pos="20.25 -15 0"
                    limited="true" range="-1.57079632679 1.57079632679"/>
             <geom type="mesh"
                   mesh="shoulder_mesh"

@@ -32,9 +32,7 @@
     <default>
         <!-- Joint defaults -->
         <default class="shoulder_joint">
-            <!-- Joint axis at shoulder body origin so it pivots at the body
-                 corner (visual alignment) and matches fk.py's chain start. -->
-            <joint type="hinge" axis="0 0 1" pos="0 0 0"
+            <joint type="hinge" axis="0 0 1" pos="20.25 -15 0"
                    limited="true" range="-1.57079632679 1.57079632679"/>
         </default>
         <default class="wing_joint">
