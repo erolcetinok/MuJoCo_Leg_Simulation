@@ -200,6 +200,11 @@ class GuiApp:
                             items=["joint", "cartesian"], default_value="joint",
                             width=120, tag="mode_combo",
                         )
+                        dpg.add_text("Cartesian leg")
+                        dpg.add_combo(
+                            items=list(CONFIG.legs), default_value=CONFIG.legs[0],
+                            width=80, tag="cart_leg_combo",
+                        )
                     dpg.add_separator()
 
                     dpg.add_text("Joint targets (rad)")
@@ -282,20 +287,31 @@ class GuiApp:
                         joint.name: float(dpg.get_value(f"joint_{joint.name}"))
                         for joint in CONFIG.joints
                     }
-                    # Push slider values into IK model so the preview reflects them.
-                    for name, v in q.items():
-                        self.ik_data.qpos[self._joint_qpos_idx[name]] = v
                 else:
+                    # Cartesian solves one leg in its own hip-local frame (legs are
+                    # geometrically identical, so the target is leg-independent). The
+                    # other legs hold their current joint-slider pose.
+                    leg = dpg.get_value("cart_leg_combo")
                     target = np.array(
                         [dpg.get_value("cart_x"), dpg.get_value("cart_y"), dpg.get_value("cart_z")],
                         dtype=float,
                     )
-                    q = {name: float(v)
-                         for name, v in zip(CONFIG.joint_names, joint_angles(*target))}
-                    # Push the solved pose to the sliders and the preview model.
-                    for name, v in q.items():
-                        dpg.set_value(f"joint_{name}", v)
-                        self.ik_data.qpos[self._joint_qpos_idx[name]] = v
+                    q = {
+                        joint.name: float(dpg.get_value(f"joint_{joint.name}"))
+                        for joint in CONFIG.joints
+                    }
+                    solved = zip((f"shoulder_{leg}", f"wing_{leg}", f"knee_{leg}"),
+                                 joint_angles(*target))
+                    for name, v in solved:
+                        q[name] = float(v)
+                        dpg.set_value(f"joint_{name}", float(v))
+
+                # Push commanded pose into the preview model. .get() guards models
+                # that lack some configured joints (e.g. single_leg.xml).
+                for name, v in q.items():
+                    idx = self._joint_qpos_idx.get(name)
+                    if idx is not None:
+                        self.ik_data.qpos[idx] = v
 
                 # Throttle outgoing commands (sim is cheap; hw is ~57600-baud bound).
                 if t0 - last_send >= self.dt:

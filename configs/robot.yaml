@@ -44,7 +44,16 @@ links_mm:
   knee_to_foot: [21.0, 0.0, -110.0]
 
 foot_site_offset_mm: [21, -12, 0]
-target_site_offset_mm: [0, -175, -50]
+# Nominal resting foot in leg-local frame. Low-slung stance with a VERTICAL lower
+# leg and the wing/knee bent to the NEGATIVE side of zero: thighs angle UP from the
+# body to raised knees, shank drops straight to the foot — wing≈-16°, knee≈+16°.
+# Foot ~133mm outboard, 80mm below the hip, leg ~70% extended (155/222mm; right in
+# the 67-72% band of Stanford Pupper ~67% — validated by stance research). Body height/foot
+# width are coupled (shank held vertical): a lower body swings the thigh up and
+# pushes feet wider. This geometry (thigh points outboard, wing range ±50°) can't
+# do vertical-shank AND a tucked-in foot. Position-based control (kinematic sim +
+# position-mode Dynamixels). Pairs with body z=80 in quadruped.xml (feet on ground).
+target_site_offset_mm: [0, -133, -80]
 
 mjcf:
   # MJCF sites are per-leg suffixed: foot_site_FL, target_site_FL, ...

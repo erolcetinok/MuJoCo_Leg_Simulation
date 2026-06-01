@@ -15,8 +15,8 @@ def test_gui_app_constructs():
     from quadruped.gui.app import GuiApp
 
     app = GuiApp(backend_kind="sim", port=None, view_mode="none")
-    assert app.ik_model.nu == 3
-    assert len(app._joint_qpos_idx) == 3
+    assert app.ik_model.nu == 12
+    assert len(app._joint_qpos_idx) == 12
     assert app._target_default.shape == (3,)
     assert app.view_mode == "none"
 

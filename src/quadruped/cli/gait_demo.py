@@ -52,10 +52,19 @@ def _rotz_xy(theta: float) -> np.ndarray:
 
 
 def _build_leg_pose(model: mujoco.MjModel) -> dict:
+    # The hip-frame origin FK/IK rotate about is the shoulder *rotation axis*,
+    # not the shoulder body origin: the joint sits at a local offset inside the
+    # body (shoulder_joint pos in the MJCF). Recover the axis in body frame as
+    # body.pos + Rz(yaw)·jnt_pos so it lands on the design corner (±75, ±75)
+    # regardless of that offset.
     pose = {}
     for leg in CONFIG.legs:
         body = model.body(f"shoulder_{leg}")
-        pose[leg] = (np.asarray(body.pos, dtype=float).copy(), _leg_yaw_rad(model, leg))
+        yaw = _leg_yaw_rad(model, leg)
+        jnt_pos = np.asarray(model.joint(f"shoulder_joint_{leg}").pos, dtype=float)
+        xy = _rotz_xy(yaw) @ jnt_pos[:2]
+        axis = np.asarray(body.pos, dtype=float) + np.array([xy[0], xy[1], jnt_pos[2]])
+        pose[leg] = (axis, yaw)
     return pose
 
 

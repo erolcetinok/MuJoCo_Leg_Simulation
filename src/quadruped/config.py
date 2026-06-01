@@ -110,7 +110,7 @@ Joint(name='knee_BR', leg='BR', joint='knee', motor_id=12, limit_rad=(-2.0071286
         knee_to_foot=(21.0, 0.0, -110.0),
     ),
     foot_site_offset_mm=(21, -12, 0),
-    target_site_offset_mm=(0, -175, -50),
+    target_site_offset_mm=(0, -133, -80),
     mjcf=MjcfNames(
         foot_site_name='foot_site',
         target_site_name='target_site',
