@@ -45,13 +45,13 @@ TROT_PHASE_OFFSETS = {
 WALK_PRESET = {
     "period": 1.0,
     "duty_factor": 0.75,
-    "apex_height": 15.0,
+    "apex_height": 30.0,
     "phase_offsets": WALK_PHASE_OFFSETS,
 }
 TROT_PRESET = {
     "period": 0.5,
     "duty_factor": 0.5,
-    "apex_height": 15.0,
+    "apex_height": 30.0,
     "phase_offsets": TROT_PHASE_OFFSETS,
 }
 
