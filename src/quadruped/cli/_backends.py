@@ -4,15 +4,18 @@ from __future__ import annotations
 import argparse
 import os
 
-from quadruped.backends import ArduinoBackend, MirrorBackend, MujocoBackend, RobotBackend
+from quadruped.backends import (
+    ArduinoBackend, DynamixelBackend, MirrorBackend, MujocoBackend, RobotBackend,
+)
 
 
 def add_backend_args(parser: argparse.ArgumentParser, *, default: str = "sim") -> None:
     parser.add_argument(
         "--backend",
-        choices=["sim", "hw", "mirror"],
+        choices=["sim", "hw", "dxl", "mirror"],
         default=default,
-        help="Which backend to drive (default: %(default)s).",
+        help="Which backend to drive (default: %(default)s). "
+             "hw = Arduino/SoftwareSerial; dxl = U2D2 + DYNAMIXEL SDK.",
     )
     parser.add_argument("--port", "-p", default=None,
                         help="Serial port for hw/mirror backends (or SERIAL_PORT env var).")
@@ -31,6 +34,9 @@ def build_backend(args: argparse.Namespace) -> RobotBackend:
     if args.backend == "hw":
         port = args.port or os.environ.get("SERIAL_PORT")
         return ArduinoBackend(port=port, baud=args.baud)
+    if args.backend == "dxl":
+        port = args.port or os.environ.get("SERIAL_PORT")
+        return DynamixelBackend(port=port, baud=args.baud)
     if args.backend == "mirror":
         port = args.port or os.environ.get("SERIAL_PORT")
         sim = MujocoBackend(xml=args.xml, use_viewer=args.viewer)

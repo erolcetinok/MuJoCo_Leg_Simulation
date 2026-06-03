@@ -28,6 +28,7 @@ dev = ["pytest"]
 quad-send-foot = "quadruped.cli.send_foot:main"
 quad-send-angles = "quadruped.cli.send_angles:main"
 quad-jog = "quadruped.cli.jog:main"
+quad-calibrate = "quadruped.cli.calibrate:main"
 quad-view = "quadruped.cli.view:main"
 quad-ik-demo = "quadruped.cli.ik_demo:main"
 quad-gait-demo = "quadruped.cli.gait_demo:main"
