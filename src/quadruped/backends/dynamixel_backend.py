@@ -17,8 +17,11 @@ import math
 import os
 from typing import Optional
 
+import numpy as np
+
 from quadruped.backends.base import RobotBackend
 from quadruped.config import CONFIG
+from quadruped.kinematics.jacobian import foot_force as _foot_force
 
 # --- XL430 / Protocol 2.0 control table (addr, length in bytes) -------------
 ADDR_TORQUE_ENABLE = 64
@@ -205,6 +208,32 @@ class DynamixelBackend(RobotBackend):
         """Per-joint current (amps) from the last read_joint_state(). A spike at
         touchdown is the cheap contact signal (Stanford Pupper / mjbots trick)."""
         return dict(self._last_current)
+
+    def foot_force(self, leg: str) -> np.ndarray:
+        """Estimated Cartesian foot force (N, leg-local) from the DXL current.
+
+        Does its OWN single read_joint_state() so position and current come from
+        the same bus read: present_current() returns only that read's stashed
+        current (there is no stashed position), so pairing it with a separate
+        read would mismatch the two. LORIS-style proprioceptive contact sensing.
+
+        Raises RuntimeError if the bus read came back incomplete for this leg
+        (read_joint_state skips any motor whose GroupSyncRead was unavailable —
+        common under DXL contention). That is a clear, catchable signal so a
+        gait/contact loop can skip the cycle rather than hit a bare KeyError.
+        """
+        names = CONFIG.leg_joint_names(leg)   # (shoulder, wing, knee) order
+        qpos, _ = self.read_joint_state()
+        cur = self.present_current()
+        missing = [n for n in names if n not in qpos or n not in cur]
+        if missing:
+            raise RuntimeError(
+                f"foot_force({leg!r}): incomplete bus read, missing {missing}"
+            )
+        return _foot_force(
+            tuple(qpos[n] for n in names),
+            tuple(cur[n] for n in names),
+        )
 
     @property
     def port(self) -> str:

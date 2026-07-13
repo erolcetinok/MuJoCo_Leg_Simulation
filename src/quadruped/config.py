@@ -34,6 +34,11 @@ class Serial:
 
 
 @dataclass(frozen=True)
+class Actuator:
+    torque_constant_nm_per_a: float
+
+
+@dataclass(frozen=True)
 class LinksMM:
     shoulder_to_wing: Tuple[float, float, float]
     wing_to_knee: Tuple[float, float, float]
@@ -52,6 +57,7 @@ class RobotConfig:
     robot: str
     description_xml: str
     serial: Serial
+    actuator: Actuator
     legs: Tuple[str, ...]
     joints: Tuple[Joint, ...]
     links_mm: LinksMM
@@ -84,6 +90,7 @@ CONFIG: RobotConfig = RobotConfig(
     robot='quadruped',
     description_xml='description/quadruped.xml',
     serial=Serial(baud_host=57600, baud_dxl=115200),
+    actuator=Actuator(torque_constant_nm_per_a=1.077),
     legs=(
 'FL',
 'FR',

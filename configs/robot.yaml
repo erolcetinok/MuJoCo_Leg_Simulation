@@ -5,6 +5,16 @@ serial:
   baud_host: 57600          # SoftwareSerial ceiling on UNO R3
   baud_dxl: 115200
 
+# Host-only actuator constants (NOT emitted to the firmware header — the sketch
+# never computes force). Used by kinematics/jacobian.foot_force to turn the DXL
+# present-current into joint torque, then into a Cartesian foot force.
+actuator:
+  # XL430-W250 gear-output torque constant. ROBOTIS e-manual stall specs give
+  # 1.4 N.m / 1.3 A @ 11.1V = 1.077 N.m/A (12V→1.071, 9V→1.0; ~1.07 across the
+  # range). This is the output-shaft value, so it maps motor current directly
+  # to joint torque (gearbox already included).
+  torque_constant_nm_per_a: 1.077
+
 # Leg order is canonical: FL, FR, BL, BR. Anything that needs a stable order
 # (firmware syncWrite, wire-format on the serial line) follows it.
 legs: [FL, FR, BL, BR]

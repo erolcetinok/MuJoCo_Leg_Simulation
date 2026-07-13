@@ -137,6 +137,34 @@ def test_read_joint_state_decodes_pos_vel_current(fake_sdk):
     assert b.present_current()["shoulder_FL"] == pytest.approx(50 * 2.69 / 1000, abs=1e-6)
 
 
+def test_foot_force_matches_pure_function(fake_sdk):
+    from quadruped.kinematics.jacobian import foot_force
+
+    b = DynamixelBackend(port="/dev/fake")
+    b.connect()
+    # seed each FL motor with known raw pos/vel/current
+    raws = {"shoulder_FL": (2100, 0, 40),
+            "wing_FL": (1900, 0, -30),
+            "knee_FL": (2300, 0, 25)}
+    b._sync_read.data = {
+        CONFIG.joint(n).motor_id: {(132, 4): p, (128, 4): v, (126, 2): c}
+        for n, (p, v, c) in raws.items()
+    }
+    force = b.foot_force("FL")
+
+    # Recompute independently with the joint order pinned EXPLICITLY (shoulder,
+    # wing, knee) — not via leg_joint_names — so a wrong ordering in the method
+    # would fail this test instead of cancelling out.
+    qpos, _ = b.read_joint_state()
+    cur = b.present_current()
+    expected = foot_force(
+        (qpos["shoulder_FL"], qpos["wing_FL"], qpos["knee_FL"]),
+        (cur["shoulder_FL"], cur["wing_FL"], cur["knee_FL"]),
+    )
+    assert np.allclose(force, expected)
+    assert force.shape == (3,)
+
+
 def test_disconnect_torques_off_and_closes(fake_sdk):
     b = DynamixelBackend(port="/dev/fake")
     b.connect()

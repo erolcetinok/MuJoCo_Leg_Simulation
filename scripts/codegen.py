@@ -116,6 +116,11 @@ class Serial:
 
 
 @dataclass(frozen=True)
+class Actuator:
+    torque_constant_nm_per_a: float
+
+
+@dataclass(frozen=True)
 class LinksMM:
     shoulder_to_wing: Tuple[float, float, float]
     wing_to_knee: Tuple[float, float, float]
@@ -134,6 +139,7 @@ class RobotConfig:
     robot: str
     description_xml: str
     serial: Serial
+    actuator: Actuator
     legs: Tuple[str, ...]
     joints: Tuple[Joint, ...]
     links_mm: LinksMM
@@ -166,6 +172,7 @@ CONFIG: RobotConfig = RobotConfig(
     robot={{ robot|repr }},
     description_xml={{ description_xml|repr }},
     serial=Serial(baud_host={{ serial.baud_host }}, baud_dxl={{ serial.baud_dxl }}),
+    actuator=Actuator(torque_constant_nm_per_a={{ actuator.torque_constant_nm_per_a }}),
     legs=(
 {% for leg in legs -%}
         {{ leg|repr }},
