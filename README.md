@@ -1,75 +1,96 @@
 # MuJoCo Quadruped
 
-A 3-DoF quadruped robot project with a tight simulation ↔ hardware parallel:
-MuJoCo simulation, Dynamixel-driven physical leg, and a backend abstraction so
-the same command stream can drive either or both in lockstep.
+A 3-DoF-per-leg quadruped with a tight simulation ↔ hardware parallel: one
+MuJoCo model, one set of kinematics and gait code, and a backend abstraction so
+the same command stream drives the simulator, real Dynamixels, or both at once.
 
-Current state: single physical leg working (Arduino UNO R3 + Dynamixel Shield +
-3× XL430). Goal: walking quadruped over the summer, progressing through
-kinematics → trajectories → PID → gait → 4-leg coordination → IMU → ROS 2.
+**Current state:** the full 12-DOF software stack is written and verified in
+simulation. One physical leg has been driven end-to-end on real hardware. The
+four-legged robot has not been assembled yet — that's the next job.
 
-> **New to the codebase?** Read **`docs/HANDBOOK.md`** — it's the working
-> guide to the project structure, phase-by-phase recipes, and the "I want
-> to…" cheat-sheet. This README is the quickstart; the handbook is the manual.
+> **Coming back to this after a while?** Read **`docs/STATUS.md`** first — it's
+> the dated catch-up page (what works, what's only ever run in sim, what's next).
+> Then **`docs/HANDBOOK.md`** for how the code is organised.
 
 ---
 
 ## Layout
 
 ```
-configs/robot.yaml             single source of truth (joints, limits, offsets, bauds)
-description/                   MJCF + STL meshes (MuJoCo-Menagerie convention)
-firmware/                      Arduino sketches; robot_config.h is codegen'd
-src/quadruped/                 Python package
-  ├── config.py                generated dataclass mirroring robot.yaml
-  ├── kinematics/              IK (damped least-squares) + FK
-  ├── control/                 trajectory / PID / gait (Phase 2-4 homes)
-  ├── backends/                RobotBackend ABC; Mujoco, Arduino, Mirror impls
-  ├── sim/                     MuJoCo loader with YAML-consistency assertions
-  ├── gui/                     Dear PyGui slider app (Landing 2 — stub)
-  └── cli/                     entry-point modules: send_foot, jog, view, ik_demo…
-scripts/                       thin shims + codegen.py
-tests/                         pytest: codegen drift + IK→FK round-trip
-cad/                           CAD source (e.g. thigh.3mf)
+configs/robot.yaml      single source of truth (joints, limits, offsets, bauds)
+description/            MJCF + STL meshes (MuJoCo-Menagerie convention)
+firmware/               Arduino sketches; robot_config.h is generated
+scripts/                every command you run, plus codegen
+src/quadruped/          the importable library
+  ├── config.py         generated dataclass mirroring robot.yaml
+  ├── kinematics/       fk, ik (closed-form), jacobian (DLS IK + foot force)
+  ├── control/          trajectory.py, gait.py
+  ├── backends/         RobotBackend ABC: Mujoco, Arduino, Dynamixel, Mirror
+  ├── calibration.py    tick math, YAML patching, the guided calibration routine
+  ├── cli_args.py       argparse glue shared by scripts/ (backend flags, parsers)
+  ├── sim/              MuJoCo loader with YAML-consistency assertions
+  └── gui/              Dear PyGui app + embedded MuJoCo renderer
+tests/                  pytest
+cad/                    CAD source (e.g. thigh.3mf)
 ```
+
+**`scripts/` holds things you run; `src/quadruped/` holds things you import.**
+There are no `quad-*` console scripts — a command is a file, and you run it with
+your active interpreter, which is what you want when MuJoCo is involved.
 
 ## Quickstart
 
 ```bash
-# Install the package + tooling (creates `quad-*` CLI entry points)
-pip install -e .[dev,gui]
+python -m venv .venv && source .venv/bin/activate
+pip install -e '.[dev,gui]'      # installs deps + `import quadruped`; no commands
+pytest                           # or: PYTHONPATH=src pytest
+python scripts/codegen.py --check   # generated artifacts match robot.yaml?
+```
 
-# Verify everything works
-python scripts/codegen.py --check     # generated artifacts match robot.yaml
-pytest                                # IK round-trip + codegen tests
-
-# Simulation only
-python scripts/send_foot.py 20 -175 -50 --dry-run     # IK only, prints angles
+```bash
+# Simulation only — safe, no hardware needed
+python scripts/send_foot.py 20 -175 -50 --dry-run       # IK only, prints angles
 python scripts/send_foot.py 20 -175 -50 --backend sim --viewer
-python scripts/view.py --model single
+python scripts/view.py --model quad
 python scripts/ik_demo.py --path step
-python scripts/gait_demo.py --gait trot
+python scripts/gait_demo.py --gait trot --vx 40
 
-# Hardware (needs the leg powered + USB-to-TTL adapter — see firmware/README.md)
+# Hardware — U2D2 path (primary)
 export SERIAL_PORT=/dev/cu.usbserial-XXXX
-python scripts/send_foot.py 20 -175 -50 --backend hw
+python scripts/calibrate.py --leg FR                    # guided sign/offset wizard
+python scripts/jog_cart.py --leg FL                     # Cartesian jog + foot force
+python scripts/gait_demo.py --backend dxl --rate 33
+
+# Hardware — Arduino UNO bridge (fallback; see firmware/README.md)
 python scripts/jog.py --backend hw
+python scripts/swing_hw.py --loop
 
 # Sim + hardware in lockstep
 python scripts/send_foot.py 20 -175 -50 --backend mirror --viewer
 
-# Interactive slider GUI (Dear PyGui + embedded MuJoCo render)
-python scripts/gui.py --backend sim                       # default: embedded sim view in the GUI
-python scripts/gui.py --backend mirror --viewer embedded  # GUI drives sim + physical leg
-python scripts/gui.py --backend hw --viewer none          # slider-only, no sim view
-python scripts/gui.py --backend sim --viewer external     # fall back to mujoco passive viewer
+# Slider GUI (Dear PyGui + embedded MuJoCo render)
+python scripts/gui.py                                   # sim, embedded viewer
+python scripts/gui.py --backend mirror                  # sim + leg together
+python scripts/gui.py --backend hw --viewer none        # sliders only
 ```
 
-> **GUI viewer modes:** `embedded` (default) renders MuJoCo offscreen into a
-> Dear PyGui dynamic texture — one window, one process, no second GLFW
-> context, works reliably on macOS. `external` launches MuJoCo's full
-> passive viewer in a separate window (useful for mouse-camera control), but
-> on macOS the dual-GLFW setup is fragile. `none` is slider-only.
+> **GUI viewer modes:** `embedded` (default) renders MuJoCo offscreen into a Dear
+> PyGui texture — one window, one process, no second GLFW context, reliable on
+> macOS. `external` launches MuJoCo's passive viewer in its own window (mouse
+> camera control, but the dual-GLFW setup is fragile on macOS). `none` is
+> slider-only.
+
+## Backends
+
+`quadruped.backends.RobotBackend` is the abstraction; pick one with `--backend`
+and nothing downstream branches on the choice.
+
+| `--backend` | Class | What it does |
+| --- | --- | --- |
+| `sim` | `MujocoBackend` | Writes joint angles straight to `data.qpos` and runs `mj_forward`. **Kinematic — physics is bypassed**, so it shows geometry and reach, not balance. |
+| `dxl` | `DynamixelBackend` | U2D2 + DYNAMIXEL SDK, direct USB→bus. Sync read/write, present current, `foot_force(leg)`. Written and unit-tested; **not yet run against a real bus.** |
+| `hw` | `ArduinoBackend` | Serial bridge to `leg_controller.ino` at 57600. Fire-and-forget: `SoftwareSerial` drops ~15% of host bytes under DXL load. |
+| `mirror` | `MirrorBackend` | Fans one command to sim + hardware together. |
 
 ## Editing the robot configuration
 
@@ -79,49 +100,31 @@ Joint limits, motor IDs, baud rates, zero offsets, and link lengths live in
 - `firmware/leg_controller/robot_config.h` — `#include`d by the sketch
 - `src/quadruped/config.py` — frozen dataclass imported by the package
 
-After editing the YAML, run `python scripts/codegen.py` (or `quad-codegen`
-after install). A `--check` mode is included for pre-commit / CI: it fails if
-either artifact has drifted.
-
-To make drift a build error, install the bundled pre-commit hook:
+After editing the YAML, run `python scripts/codegen.py`. `--check` mode fails if
+either artifact has drifted; install the bundled hook to make drift a commit
+error:
 
 ```bash
-pip install pre-commit
-pre-commit install
+pip install pre-commit && pre-commit install
 ```
 
-After that every `git commit` runs `scripts/codegen.py --check` and refuses
-to commit when the YAML and generated files don't match.
+## Documentation
 
-## Backends
+`docs/` is gitignored — it lives on this machine only, not in the repo.
 
-`quadruped.backends.RobotBackend` is the abstraction. Three implementations
-ship today:
-
-| Backend             | What it does                                          |
-| ------------------- | ----------------------------------------------------- |
-| `MujocoBackend`     | Drives `data.ctrl` on the MJCF model; optional viewer |
-| `ArduinoBackend`    | Serial bridge to `leg_controller.ino` (same wire format) |
-| `MirrorBackend`     | Fans the same target to multiple backends             |
-| `DynamixelBackend`  | Stub for a future U2D2 + DynamixelSDK direct path     |
-
-## Phase roadmap
-
-1. **Kinematics foundation** — IK exists (✓), refactor into the package (✓)
-2. **Smooth motion / trajectories** — `control/trajectory.py` (cubic splines + Bezier swing curves)
-3. **PID / feedback control** — `control/pid.py`
-4. **Single-leg gait state machine** — `control/gait.py`
-5. **4-leg coordination** — wire up `quadruped.xml` in real hardware
-6. **Body kinematics & stability**
-7. **IMU + state estimation**
-8. **ROS 2 integration** — thin wrappers around the library
-9. **Advanced locomotion** — trot transitions, terrain
-10. **RL / MPC / vision**
-
-The package is intentionally ROS-free so Phase 8 is a thin `ament_python`
-wrapper rather than a rewrite.
+| File | What it's for |
+| --- | --- |
+| `docs/STATUS.md` | **Start here.** Dated state of the project, what's hardware-proven vs sim-only, open gaps, next action. |
+| `docs/HANDBOOK.md` | How the codebase is organised and how to work in it: mental model, repo map, the two pipelines, "I want to…" recipes, debugging playbook. |
+| `docs/CLI.md` | Every command, every flag, when to reach for it. |
+| `docs/INVERSE_KINEMATICS.md` | Full derivation of the closed-form solver, plus the Jacobian / DLS / foot-force math. |
+| `docs/hardware_bringup.md` | BOM and bringup checklist for the full quadruped. |
+| `docs/power_and_electronics.md` | Staged power chain, wiring diagrams, part choices. |
+| `firmware/README.md` | Arduino UNO bridge path (fallback), end to end. |
 
 ## Hardware
 
-Full bring-up (parts, wiring, motor configuration, calibration) is in
-**`firmware/README.md`**.
+The primary path is a Raspberry Pi 5 + U2D2 driving twelve XL430-W250 servos —
+see `docs/hardware_bringup.md` and `docs/power_and_electronics.md`. The Arduino
+UNO R3 + Dynamixel Shield bridge is kept as a fallback and documented in
+`firmware/README.md`.

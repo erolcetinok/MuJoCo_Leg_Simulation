@@ -11,8 +11,8 @@ import sys
 
 import numpy as np
 
-from quadruped.cli._backends import add_backend_args, build_backend
-from quadruped.cli.jog import parse_three_floats
+from quadruped.cli_args import add_backend_args, build_backend, parse_three_floats
+
 from quadruped.config import CONFIG
 from quadruped.kinematics.fk import foot_position
 from quadruped.kinematics.jacobian import dls_ik

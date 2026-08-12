@@ -1,6 +1,24 @@
-# Single-leg hardware setup
+# Arduino UNO bridge — hardware setup
 
-Start-to-finish bring-up for the 3-DoF leg: three daisy-chained Dynamixels driven by an Arduino UNO R3, commanded over USB from your Mac. Joint order everywhere is **shoulder → wing → knee**, same as `description/single_leg.xml`.
+> **Which path am I on?** This is the **fallback**. The primary hardware path is
+> a Raspberry Pi 5 + U2D2 driving the servos directly over the DYNAMIXEL SDK —
+> see `docs/hardware_bringup.md` for the BOM and bringup order, and
+> `docs/power_and_electronics.md` for the power chain. The U2D2 path needs no
+> Arduino, no firmware flashing, and gives you state readback for free
+> (`--backend dxl`).
+>
+> Keep this document for the case where the U2D2 disappoints: the UNO bridge
+> works, it's fully understood, and it's what the first leg was brought up on.
+
+Start-to-finish bring-up for the Arduino path: up to twelve daisy-chained
+Dynamixels driven by an Arduino UNO R3, commanded over USB from your Mac.
+Joint order everywhere is the canonical YAML order — legs **FL, FR, BL, BR** ×
+joints **shoulder, wing, knee** — the same order used by the wire format, the
+`syncWrite` packet, and `configs/robot.yaml`.
+
+If you're bringing up a single leg on the bench, wire only FL (IDs 1-3); the
+sketch reports `? no servo ID <n>` for the absent motors at boot and keeps
+going.
 
 The Arduino's onboard USB is **flash-only** for this project. Host comms (commands and replies) go through a small USB-to-TTL adapter wired to the Arduino's D7/D8 pins. The reason: on UNO R3, the Dynamixel Shield and the onboard USB-UART chip both live on the same hardware UART (D0/D1) and electrically fight each other for D0 — you cannot reliably read host bytes through the Arduino's USB while the shield is driving the DXL bus. See §5 for the full explanation. The adapter sidesteps the problem cleanly by putting host comms on a second, dedicated serial path that ROBOTIS designed the shield for.
 
@@ -12,11 +30,11 @@ The Arduino's onboard USB is **flash-only** for this project. Host comms (comman
 |------|-------|
 | **Arduino UNO R3** | ATmega328P. Onboard USB used for flashing only. |
 | **ROBOTIS DYNAMIXEL Shield** | TTL half-duplex driver + screw terminals + UART switch + Dynamixel power switch. |
-| **3 × XL430-W250-T** servos | Daisy-chained. IDs **1 / 2 / 3** (shoulder / wing / knee), **Protocol 2.0**, **baud 115 200**. |
+| **12 × XL430-W250-T** servos | Daisy-chained. IDs **1-12** in per-leg blocks (FL 1-3, FR 4-6, BL 7-9, BR 10-12), each block shoulder / wing / knee. **Protocol 2.0**, **baud 115 200**. |
 | **3-pin TTL JST cables** | XL430 uses TTL only — **never** the 4-pin RS-485 port on the shield. |
 | **USB-to-TTL adapter** | CP2102, CH340, or FTDI. Any cheap module from Amazon. Carries host commands and replies. |
 | **3× M/F jumper wires** | "Dupont" cables to connect adapter ↔ Arduino. |
-| **Bench supply** | **6.5–12.0 V** (XL430's spec — the shield itself accepts 5–24 V, but the motors don't), ~5 A capable for three XL-class motors under load. **Do not exceed 12.0 V.** |
+| **Bench supply** | **6.5–12.0 V** (XL430's spec — the shield itself accepts 5–24 V, but the motors don't). ~5 A is enough for one leg on the bench; a full twelve-motor robot needs far more headroom — see `docs/power_and_electronics.md`. **Do not exceed 12.0 V.** |
 | **USB-B cable** | UNO R3 to your Mac (flashing). |
 | **USB-A cable for the adapter** | Whatever the adapter takes (USB-A or USB-C). |
 
@@ -38,7 +56,18 @@ Official references (only consult if something doesn't match below):
 
 ## 3. Configure the servos (IDs, baud, protocol)
 
-Each motor must end up at **ID 1 / 2 / 3**, **baud 115 200**, **Protocol 2.0**. Factory defaults are **ID 1, baud 57 600** — three fresh XL430s on the same bus will all answer to ID 1 and collide, which is why you configure one motor at a time below.
+Each motor must end up at a **unique ID in 1-12**, **baud 115 200**, **Protocol 2.0**. Factory defaults are **ID 1, baud 57 600** — fresh XL430s on the same bus will all answer to ID 1 and collide, which is why you configure one motor at a time below.
+
+The ID map is fixed by `configs/robot.yaml` and must match exactly:
+
+| Leg | Shoulder | Wing | Knee |
+|-----|----------|------|------|
+| FL  | 1 | 2 | 3 |
+| FR  | 4 | 5 | 6 |
+| BL  | 7 | 8 | 9 |
+| BR  | 10 | 11 | 12 |
+
+Label each motor physically as you configure it. Twelve identical servos on a bench with no labels is a bad afternoon.
 
 > Why 115 200 and not 1 Mbps (the XL430's nominal max)? Because the hardware Serial bus only carries DXL traffic now (host is on the adapter), 1 Mbps is technically usable — but motors and sketches currently default to 115 200 and there's no benefit at this scale. Stick with 115 200 unless you have a reason.
 
@@ -48,11 +77,11 @@ Each motor must end up at **ID 1 / 2 / 3**, **baud 115 200**, **Protocol 2.0**. 
 
 Use the repo-local helper sketch `firmware/configure_motor/configure_motor.ino`. It probes the motor across 57 600 / 115 200 / 1 000 000, sets it to your target ID, then changes its baud to 115 200 — all in one upload. Output prints to the adapter's terminal at **57 600** (host link baud — see §5).
 
-Procedure — repeat three times:
+Procedure — repeat once per motor (up to twelve times):
 
-1. **Disconnect all motors except the one you're configuring.** Plug only motor #1 (or #2 or #3 — they're all identical at this point) into the shield's TTL jack.
+1. **Disconnect all motors except the one you're configuring.** Plug only that motor into the shield's TTL jack — they're all identical at this point.
 2. Open `firmware/configure_motor/configure_motor.ino`.
-3. Edit `#define SOURCE_ID` (match the motor's current ID, or 1 for factory-fresh) and `#define TARGET_ID` — **1** for shoulder, **2** for wing, **3** for knee.
+3. Edit `#define SOURCE_ID` (match the motor's current ID, or 1 for factory-fresh) and `#define TARGET_ID` — the value from the ID table above.
 4. Set UART switch to **Upload**, click **Upload** in the IDE.
 5. Flip UART switch to **DYNAMIXEL**, press **RESET**, wait ~3 seconds.
 6. Open a terminal on the adapter's port at **57600** baud (`python scripts/usb_console.py` does this, or any terminal of your choice). You should see `OK: motor at ID <n>, baud 115200` — the 115200 here is the *motor's* baud, which is independent of the host link.
@@ -137,11 +166,21 @@ Expected output after reset:
 
 ```
 the controller is ready
-dynamixels ready
-mode: usb command (q,q1,q2,q3)
+ID 1 pos ticks=2048 deg=180.00
+... (one line per motor found)
+dynamixels ready (12 joints)
+mode: usb command (q,q0,...,qN-1)
 ```
 
-Then send `q,0.0,0.0,0.0` + Enter (line ending Newline). Reply should be `ok 0.00 0.00 0.00` and the leg snaps to the zero pose.
+Then send twelve zeros + Enter (line ending Newline):
+
+```
+q,0,0,0,0,0,0,0,0,0,0,0,0
+```
+
+Reply should be `ok` followed by the twelve clamped values, and the legs snap to
+the zero pose. Sending fewer than twelve values is rejected with
+`? bad format at index <i>` or `? missing comma at index <i>`.
 
 **If the terminal is blank or shows nothing:** baud rate or wrong port. Confirm 57 600 and that you picked the adapter's port. If still blank, double-check the three jumper wires (TX↔D7, RX↔D8, GND↔GND).
 
@@ -164,28 +203,43 @@ export SERIAL_PORT=/dev/cu.usbserial-XXXX
 python scripts/send_angles.py 0.1 -0.2 0.5
 ```
 
-Interactive (no per-command lag — port stays open):
+Interactive (no per-command lag — port stays open), picking the leg:
 
 ```bash
-python scripts/jog.py --port /dev/cu.usbserial-XXXX
+python scripts/jog.py --leg FL --backend hw --port /dev/cu.usbserial-XXXX
 ```
 
 ```
 > 0 0 0
-  ok 0.00 0.00 0.00
+  ok 0.000 0.000 0.000 ...
 > 0.5 -0.3 0.2
-  ok 0.50 -0.30 0.20
+  ok 0.500 -0.300 0.200 ...
 ```
 
-`scripts/usb_console.py` is a terminal replacement for Arduino Serial Monitor — useful for one-off inspection. All three scripts default to baud **57 600** to match the sketch.
+You type three angles; they go to the chosen leg's shoulder/wing/knee, and the
+other nine joints hold their cached pose. The reply echoes all twelve.
+
+> `send_angles.py` and `send_foot.py` take the same `--leg` flag, defaulting to
+> `FL`.
+
+For a full step cycle rather than static poses, use `scripts/swing_hw.py
+--backend hw --rate 33 --loop`.
+
+`scripts/usb_console.py` is a terminal replacement for Arduino Serial Monitor — useful for one-off inspection. All of these default to baud **57 600** to match the sketch.
 
 ---
 
 ## 9. Protocol
 
-- One line per command: `q,<q1>,<q2>,<q3>`, radians, newline-terminated.
-- Reply: `ok <q1> <q2> <q3>` (echo of clamped values), or `? bad format` / `? no servo ID <n>`.
-- Joint limits (radians, enforced by the Arduino):
+- One line per command: `q,<q0>,<q1>,...,<q11>` — **twelve** radian values,
+  newline-terminated, in canonical order (FL, FR, BL, BR × shoulder, wing, knee).
+- Reply: `ok` followed by the twelve clamped values. Errors:
+  `? bad format; use q,q0,q1,...`, `? bad format at index <i>`,
+  `? missing comma at index <i>`, `? no servo ID <n>`, `? syncWrite failed err=<code>`.
+- All twelve goals go out in **one `syncWrite` packet**, which is the point of
+  the multi-leg refactor — twelve separate `setGoalPosition()` calls would not
+  fit the timing budget.
+- Joint limits (radians, enforced by the Arduino, identical for every leg):
 
   | Joint | Min | Max |
   |-------|-----|-----|
@@ -193,15 +247,45 @@ python scripts/jog.py --port /dev/cu.usbserial-XXXX
   | Wing | −0.873 (≈ −50°) | +0.873 (≈ +50°) |
   | Knee | −2.007 (≈ −115°) | +π/2 |
 
-Limits match `description/single_leg.xml`.
+Limits, IDs, offsets, and directions all come from `robot_config.h`, generated
+from `configs/robot.yaml`. They are asserted against the MJCF at model-load
+time, so sim and firmware can't silently disagree.
 
-Motion speed is firmware-set, not commanded: `leg_controller.ino` writes `PROFILE_VELOCITY = 40` to each motor in `setup()`. Edit that constant in the sketch if you want faster/slower trajectories — the Python side has no speed parameter.
+**This link is fire-and-forget by design.** `SoftwareSerial` drops roughly 15%
+of host bytes while the DXL bus is busy, so `ArduinoBackend` does not wait for
+the `ok` echo — a dropped command is simply superseded by the next one at the
+streaming rate. Measured round-trip is ~19 ms, giving a practical ceiling of
+**40–50 Hz**; use `--rate 33`. If you need reliable feedback, use the U2D2 path.
+
+Motion speed is firmware-set, not commanded: `leg_controller.ino` writes
+`PROFILE_VELOCITY = 0` to each motor in `setup()`. Zero means "no profile" —
+the servo goes to each goal as fast as it can, which is what you want when the
+host is streaming a smooth trajectory at 33 Hz and the profile would otherwise
+fight it. Raise it only for slow, discrete moves.
 
 ---
 
 ## 10. Calibration
 
-`leg_controller.ino` ships with `OFFSET_SHOULDER_DEG = OFFSET_WING_DEG = OFFSET_KNEE_DEG = 180.0f`. That maps `q = 0 rad` to motor position 180° — the geometric middle of `OP_POSITION`'s 0–360° range. Around that neutral, each joint's full radian limit lands inside the motor's reachable range:
+> **Do this with `scripts/calibrate.py` if you have a U2D2.** The guided wizard
+> walks a whole leg — offset *and* direction sign — and writes the results
+> straight into `configs/robot.yaml`:
+>
+> ```bash
+> python scripts/view.py --model quad &     # visual reference for "zero pose"
+> python scripts/calibrate.py --leg FR
+> python scripts/codegen.py                 # regenerate robot_config.h, then reflash
+> ```
+>
+> The manual procedure below is the Arduino-path equivalent, and is what FL was
+> originally calibrated with on 2026-05-14.
+
+Offsets and direction signs are **per joint**, generated into
+`robot_config.h` as `OFFSETS_DEG[N_JOINTS]` and `DIRS[N_JOINTS]` from the
+`offset_deg` / `direction` fields in `configs/robot.yaml`. They all currently
+ship at `180.0` / `+1`. That maps `q = 0 rad` to motor position 180° — the
+geometric middle of `OP_POSITION`'s 0–360° range. Around that neutral, each
+joint's full radian limit lands inside the motor's reachable range:
 
 | Joint | Range from q=0 | Motor degrees |
 |---|---|---|
@@ -211,12 +295,18 @@ Motion speed is firmware-set, not commanded: `leg_controller.ino` writes `PROFIL
 
 **Physical assembly assumption:** when you mount the leg links to the horns, do it with the motor sitting at 180° (its electrical midpoint). Then "q=0 across the board" produces the sim's zero pose mechanically.
 
-If you remount a motor or the sim's zero diverges from the physical neutral, recalibrate by editing the three `OFFSET_*_DEG` constants:
+If you remount a motor or the sim's zero diverges from the physical neutral,
+recalibrate that joint:
 
 1. Power the bus, leave the motors **torque off** (or just observe present positions before commands move them).
 2. By hand, move the leg to the sim's zero pose.
 3. Read the boot-time `ID <n> pos deg=...` line printed by `setup()` — that's the motor's current degree value.
-4. Use that value as the new `OFFSET_*_DEG` for that joint.
+4. Put that value in the joint's `offset_deg` in **`configs/robot.yaml`** (not in the sketch, and not in `robot_config.h` — that file is generated).
+5. `python scripts/codegen.py`, then reflash.
+
+If the joint moves the *opposite* way from the model, flip its `direction` from
+`1` to `-1` in the same YAML line and regenerate. The firmware applies it as
+`deg = DIRS[i] * q[i] * 180/π + OFFSETS_DEG[i]`.
 
 ---
 

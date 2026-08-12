@@ -3,8 +3,7 @@ import builtins
 
 import pytest
 
-from quadruped.calibration import goal_ticks
-from quadruped.cli.calibrate import _calibrate_joint
+from quadruped.calibration import calibrate_joint, goal_ticks
 from quadruped.config import CONFIG
 
 
@@ -23,7 +22,7 @@ def test_calibrate_joint_offset_nudge_and_direction_flip(monkeypatch):
 
     j = CONFIG.joint("shoulder_FR")  # starts direction=1, offset=180
     be = _FakeBackend()
-    direction, offset = _calibrate_joint(be, j, test_angle=0.3)
+    direction, offset = calibrate_joint(be, j, test_angle=0.3)
 
     assert direction == -1               # flipped by the 'n'
     assert offset == pytest.approx(185.0)  # 180 + 5
@@ -37,5 +36,5 @@ def test_calibrate_joint_no_changes(monkeypatch):
     monkeypatch.setattr(builtins, "input", lambda *a: next(answers))
 
     j = CONFIG.joint("knee_FL")
-    direction, offset = _calibrate_joint(_FakeBackend(), j, test_angle=0.3)
+    direction, offset = calibrate_joint(_FakeBackend(), j, test_angle=0.3)
     assert direction == j.direction and offset == pytest.approx(j.offset_deg)

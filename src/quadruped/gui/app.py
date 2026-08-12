@@ -27,25 +27,13 @@ import numpy as np
 import mujoco
 
 from quadruped.config import CONFIG
-from quadruped.backends import ArduinoBackend, MirrorBackend, MujocoBackend, RobotBackend
+from quadruped.backends import BACKEND_CHOICES, RobotBackend, make_backend
 from quadruped.kinematics.fk import foot_position
 from quadruped.kinematics.ik import joint_angles
 from quadruped.sim.env import load_model
 
 
 VIEW_MODES = ("embedded", "external", "none")
-
-
-def _build_backend(kind: str, port: Optional[str], external_viewer: bool) -> RobotBackend:
-    if kind == "sim":
-        return MujocoBackend(use_viewer=external_viewer)
-    if kind == "hw":
-        return ArduinoBackend(port=port)
-    if kind == "mirror":
-        sim = MujocoBackend(use_viewer=external_viewer)
-        hw = ArduinoBackend(port=port)
-        return MirrorBackend([sim, hw], truth_source=1)
-    raise ValueError(f"unknown backend: {kind!r}")
 
 
 class GuiApp:
@@ -68,6 +56,9 @@ class GuiApp:
         self.render_period = 1.0 / render_hz
         self._render_w, self._render_h = render_size
         self.backend: Optional[RobotBackend] = None
+        # Calling into DPG before create_context() aborts the process rather
+        # than raising, so _status must know whether the context exists yet.
+        self._dpg_ready = False
 
         # Preview model — owned by the GUI for the embedded renderer, separate
         # from any sim backend. Analytic IK itself needs no model.
@@ -102,7 +93,8 @@ class GuiApp:
     def _open_backend(self, kind: str) -> None:
         self._close_backend()
         try:
-            b = _build_backend(kind, self.port, external_viewer=(self.view_mode == "external"))
+            b = make_backend(kind, port=self.port,
+                             viewer=(self.view_mode == "external"))
             b.connect()
             self.backend = b
             self.backend_kind = kind
@@ -128,11 +120,12 @@ class GuiApp:
             self._status(f"send failed: {e}")
 
     def _status(self, msg: str) -> None:
-        from dearpygui import dearpygui as dpg
-        if dpg.does_item_exist("status"):
-            dpg.set_value("status", msg)
-        else:
-            print(msg, file=sys.stderr)
+        if self._dpg_ready:
+            from dearpygui import dearpygui as dpg
+            if dpg.does_item_exist("status"):
+                dpg.set_value("status", msg)
+                return
+        print(msg, file=sys.stderr)
 
     def _reset_sliders(self) -> None:
         from dearpygui import dearpygui as dpg
@@ -162,6 +155,7 @@ class GuiApp:
         from dearpygui import dearpygui as dpg
 
         dpg.create_context()
+        self._dpg_ready = True
 
         if self.view_mode == "embedded":
             self._renderer = mujoco.Renderer(
@@ -185,7 +179,7 @@ class GuiApp:
                     with dpg.group(horizontal=True):
                         dpg.add_text("Backend")
                         dpg.add_combo(
-                            items=["sim", "hw", "mirror"],
+                            items=list(BACKEND_CHOICES),
                             default_value=self.backend_kind,
                             width=120, tag="backend_combo",
                             callback=lambda s, v: self._open_backend(v),
