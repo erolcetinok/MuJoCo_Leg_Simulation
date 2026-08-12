@@ -42,17 +42,23 @@ your active interpreter, which is what you want when MuJoCo is involved.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e '.[dev,gui]'      # installs deps + `import quadruped`; no commands
-pytest                           # or: PYTHONPATH=src pytest
+pip install -e '.[dev,gui]'      # for the dependencies; commands self-bootstrap
+pytest
 python scripts/codegen.py --check   # generated artifacts match robot.yaml?
 ```
+
+> **macOS: windowed commands need `mjpython`, not `python`.** MuJoCo's
+> interactive viewer must own the main thread. That means `view.py`, `ik_demo.py`,
+> anything with `--viewer`, and `gui.py --viewer external`. Everything else —
+> including plain `python scripts/gui.py`, whose embedded viewer renders
+> offscreen — runs under normal `python`. `mjpython` ships with the mujoco wheel.
 
 ```bash
 # Simulation only — safe, no hardware needed
 python scripts/send_foot.py 20 -175 -50 --dry-run       # IK only, prints angles
-python scripts/send_foot.py 20 -175 -50 --backend sim --viewer
-python scripts/view.py --model quad
-python scripts/ik_demo.py --path step
+mjpython scripts/send_foot.py 20 -175 -50 --backend sim --viewer
+mjpython scripts/view.py --model quad
+mjpython scripts/ik_demo.py --path step
 python scripts/gait_demo.py --gait trot --vx 40
 
 # Hardware — U2D2 path (primary)
@@ -66,7 +72,7 @@ python scripts/jog.py --backend hw
 python scripts/swing_hw.py --loop
 
 # Sim + hardware in lockstep
-python scripts/send_foot.py 20 -175 -50 --backend mirror --viewer
+mjpython scripts/send_foot.py 20 -175 -50 --backend mirror --viewer
 
 # Slider GUI (Dear PyGui + embedded MuJoCo render)
 python scripts/gui.py                                   # sim, embedded viewer

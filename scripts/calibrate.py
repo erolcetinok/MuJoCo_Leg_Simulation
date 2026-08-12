@@ -15,6 +15,12 @@ import argparse
 import sys
 from pathlib import Path
 
+# Run directly (`python scripts/x.py`) without depending on `pip install -e .`:
+# put src/ on the path before importing quadruped. The editable install's .pth
+# is unreliable on macOS (see docs/STATUS.md), and this costs nothing.
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent.parent / "src"))
+
 from quadruped.backends import DynamixelBackend
 from quadruped.calibration import ask, calibrate_joint, patch_robot_yaml
 from quadruped.config import CONFIG

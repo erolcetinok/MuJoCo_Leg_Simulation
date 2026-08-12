@@ -11,12 +11,17 @@ import time
 
 import numpy as np
 import mujoco
-import mujoco.viewer
+
+# Run directly (`python scripts/x.py`) without depending on `pip install -e .`:
+# put src/ on the path before importing quadruped. The editable install's .pth
+# is unreliable on macOS (see docs/STATUS.md), and this costs nothing.
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent.parent / "src"))
 
 from quadruped.config import CONFIG
 from quadruped.kinematics.fk import foot_position
 from quadruped.kinematics.ik import joint_angles
-from quadruped.sim.env import load_model
+from quadruped.sim.env import launch_viewer, load_model
 
 
 def main() -> int:
@@ -46,7 +51,7 @@ def main() -> int:
     phase_xyz = np.array([0.0, np.pi / 3, np.pi / 6])
 
     t = 0.0
-    with mujoco.viewer.launch_passive(model, data) as viewer:
+    with launch_viewer(model, data) as viewer:
         mujoco.mj_forward(model, data)
         while viewer.is_running():
             if args.path == "lissajous":

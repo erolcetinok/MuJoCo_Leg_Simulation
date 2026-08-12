@@ -42,8 +42,8 @@ class MujocoBackend(RobotBackend):
             # rebinds the name `mujoco` as a local, shadowing the module-level
             # import and making every `mujoco.*` call above this line raise
             # UnboundLocalError.
-            from mujoco import viewer as mj_viewer
-            self._viewer = mj_viewer.launch_passive(self.model, self.data)
+            from quadruped.sim.env import launch_viewer
+            self._viewer = launch_viewer(self.model, self.data)
 
     def disconnect(self) -> None:
         if self._viewer is not None:

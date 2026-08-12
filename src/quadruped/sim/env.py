@@ -54,3 +54,34 @@ def load_model(
     if check:
         _assert_joint_ranges(model, CONFIG)
     return model, data
+
+
+MJPYTHON_HINT = (
+    "This needs an interactive MuJoCo window, which on macOS must run under "
+    "`mjpython` (it owns the main thread; plain `python` cannot).\n\n"
+    "    mjpython {cmd}\n\n"
+    "mjpython ships with the mujoco wheel — it is already at .venv/bin/mjpython.\n"
+    "Only windowed commands need it; anything headless runs under plain python, "
+    "and `python scripts/gui.py` works too because its default embedded viewer "
+    "renders offscreen."
+)
+
+
+def launch_viewer(model: mujoco.MjModel, data: mujoco.MjData):
+    """`mujoco.viewer.launch_passive`, but with an actionable macOS error.
+
+    MuJoCo's own message says mjpython is required without saying what to type,
+    and it surfaces as a traceback — easy to hit repeatedly and still not have
+    the command to hand.
+    """
+    import sys
+
+    import mujoco.viewer as mj_viewer
+
+    try:
+        return mj_viewer.launch_passive(model, data)
+    except RuntimeError as e:
+        if "mjpython" not in str(e):
+            raise
+        argv = " ".join(sys.argv) if sys.argv and sys.argv[0] else "scripts/<command>.py"
+        raise SystemExit(MJPYTHON_HINT.format(cmd=argv)) from None

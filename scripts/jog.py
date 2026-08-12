@@ -4,6 +4,12 @@ from __future__ import annotations
 import argparse
 import sys
 
+# Run directly (`python scripts/x.py`) without depending on `pip install -e .`:
+# put src/ on the path before importing quadruped. The editable install's .pth
+# is unreliable on macOS (see docs/STATUS.md), and this costs nothing.
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent.parent / "src"))
+
 from quadruped.cli_args import add_backend_args, build_backend, parse_three_floats
 from quadruped.config import CONFIG
 

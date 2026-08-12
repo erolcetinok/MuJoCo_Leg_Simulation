@@ -12,9 +12,14 @@ import sys
 import time
 
 import mujoco
-import mujoco.viewer
 
-from quadruped.sim.env import model_path
+# Run directly (`python scripts/x.py`) without depending on `pip install -e .`:
+# put src/ on the path before importing quadruped. The editable install's .pth
+# is unreliable on macOS (see docs/STATUS.md), and this costs nothing.
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent.parent / "src"))
+
+from quadruped.sim.env import launch_viewer, model_path
 
 
 def main() -> int:
@@ -35,7 +40,7 @@ def main() -> int:
         foot_site_ids = [(leg, model.site(f"foot_site_{leg}").id) for leg in ("FL", "FR", "BL", "BR")]
 
     last_print = 0.0
-    with mujoco.viewer.launch_passive(model, data) as viewer:
+    with launch_viewer(model, data) as viewer:
         while viewer.is_running():
             mujoco.mj_step(model, data)
             if args.print_foot and data.time - last_print > 0.1:

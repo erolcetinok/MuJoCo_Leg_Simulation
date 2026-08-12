@@ -63,6 +63,24 @@ def _run_help(script: str) -> subprocess.CompletedProcess:
 
 
 @pytest.mark.parametrize("script", COMMANDS)
+def test_scripts_bootstrap_their_own_path(script):
+    """Any command importing `quadruped` must put src/ on the path itself.
+
+    The editable install's .pth is unreliable on macOS, so relying on it means
+    every command dies with ModuleNotFoundError for reasons that have nothing to
+    do with the code. The bootstrap must come *before* the first quadruped
+    import to be any use.
+    """
+    text = (SCRIPTS / script).read_text()
+    first_import = text.find("\nfrom quadruped")
+    if first_import == -1 and "\nimport quadruped" not in text:
+        return  # doesn't use the package (codegen.py, usb_console.py)
+    boot = text.find("_pathlib.Path(__file__)")
+    assert boot != -1, f"scripts/{script} imports quadruped without the src/ bootstrap"
+    assert boot < first_import, f"scripts/{script} bootstraps after importing quadruped"
+
+
+@pytest.mark.parametrize("script", COMMANDS)
 def test_cli_help(script):
     result = _run_help(script)
     assert result.returncode == 0, (
