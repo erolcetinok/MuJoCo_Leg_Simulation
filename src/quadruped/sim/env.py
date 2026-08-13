@@ -11,6 +11,7 @@ import math
 from pathlib import Path
 
 import mujoco
+import numpy as np
 
 from quadruped.config import CONFIG, RobotConfig
 
@@ -54,6 +55,34 @@ def load_model(
     if check:
         _assert_joint_ranges(model, CONFIG)
     return model, data
+
+
+def leg_poses(model: mujoco.MjModel) -> dict[str, tuple[np.ndarray, float]]:
+    """Per-leg (shoulder_axis_in_body_frame, mounting_yaw) read from the MJCF.
+
+    The MJCF is the geometric source of truth for leg layout, so this is read
+    once at startup even on hardware-only runs.
+
+    The frame FK/IK rotate about is the shoulder *rotation axis*, not the
+    shoulder body origin: the joint sits at a local offset inside the body
+    (`shoulder_joint` pos in the MJCF). Recover the axis in body frame as
+    `body.pos + Rz(yaw)·jnt_pos` so it lands on the design corner (±75, ±75)
+    regardless of that offset.
+    """
+    from quadruped.control.body import rotz_xy
+
+    poses: dict[str, tuple[np.ndarray, float]] = {}
+    for leg in CONFIG.legs:
+        body = model.body(f"shoulder_{leg}")
+        # All four shoulder bodies use a pure z-yaw quaternion, so
+        # quat = (cos(θ/2), 0, 0, sin(θ/2)).
+        w, _, _, z = body.quat
+        yaw = 2.0 * float(math.atan2(z, w))
+        jnt_pos = np.asarray(model.joint(f"shoulder_joint_{leg}").pos, dtype=float)
+        xy = rotz_xy(yaw) @ jnt_pos[:2]
+        axis = np.asarray(body.pos, dtype=float) + np.array([xy[0], xy[1], jnt_pos[2]])
+        poses[leg] = (axis, yaw)
+    return poses
 
 
 MJPYTHON_HINT = (

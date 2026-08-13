@@ -62,6 +62,20 @@ def _run_help(script: str) -> subprocess.CompletedProcess:
     )
 
 
+def test_no_dead_quad_command_names_in_code():
+    """`quad-*` console scripts were removed — nothing may still reference them.
+
+    Docstrings matter as much as docs here: argparse prints the module docstring
+    in `--help`, so a stale example there is handed straight to the user.
+    """
+    offenders = []
+    for path in sorted(SCRIPTS.glob("*.py")) + sorted((ROOT / "src").rglob("*.py")):
+        for n, line in enumerate(path.read_text().splitlines(), 1):
+            if re.search(r"\bquad-[a-z]", line):
+                offenders.append(f"{path.relative_to(ROOT)}:{n}: {line.strip()}")
+    assert not offenders, "dead quad-* command names still referenced:\n" + "\n".join(offenders)
+
+
 @pytest.mark.parametrize("script", COMMANDS)
 def test_scripts_bootstrap_their_own_path(script):
     """Any command importing `quadruped` must put src/ on the path itself.

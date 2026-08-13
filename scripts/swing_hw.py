@@ -14,13 +14,13 @@ isn't itself a step input from wherever the leg happened to be.
 
 Examples:
     # Sim dry-run (prints all samples in one cycle)
-    quad-swing-hw --from 0 -175 -50 --to 20 -175 -50 --dry-run
+    python scripts/swing_hw.py --from 0 -175 -50 --to 20 -175 -50 --dry-run
 
     # Sim with viewer, looping
-    quad-swing-hw --from -30 -175 -50 --to 30 -175 -50 --apex 30 --duration 0.8 --backend sim --viewer --loop
+    mjpython scripts/swing_hw.py --from -30 -175 -50 --to 30 -175 -50 --apex 30 --duration 0.8 --backend sim --viewer --loop
 
     # Real hardware, looping cycles
-    quad-swing-hw --from -30 -175 -50 --to 30 -175 -50 --backend hw --loop
+    python scripts/swing_hw.py --from -30 -175 -50 --to 30 -175 -50 --backend hw --loop
 """
 import argparse
 import sys

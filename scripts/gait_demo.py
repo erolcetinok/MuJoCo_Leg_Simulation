@@ -1,35 +1,39 @@
 """Full quadruped gait demo — walk or trot through any RobotBackend.
 
-Drives all four legs through GaitScheduler (cubic Bezier swing + linear
-stance, Raibert foothold planning). Each tick:
-  1. scheduler.advance(dt, body_velocity)
-  2. per leg: body-frame foot position → leg-local via inverse shoulder yaw
-  3. closed-form IK (kinematics.ik.joint_angles) → (shoulder, wing, knee)
-  4. assemble 12-DOF joint target dict and call backend.set_joint_targets()
+Scripted counterpart to scripts/teleop.py: the command is fixed at launch
+instead of coming from the keyboard, which makes this the reproducible one to
+reach for when checking a change or recording a clip.
 
-This unifies sim and hardware: the dict is the same; only the backend differs.
+Drives all four legs through LocomotionController each tick:
+  1. gait phase -> per-leg foot target in body frame (Raibert footholds)
+  2. body pose applied, then converted to each leg's local frame
+  3. closed-form IK -> (shoulder, wing, knee)
+  4. 12-DOF joint dict -> backend.set_joint_targets()
 
-Per-leg shoulder pose is read once from the MJCF at startup (geometric
-truth). The canonical resting foot position in any leg's local frame
-comes from configs/robot.yaml (target_site_offset_mm).
+Sim and hardware differ only in the backend; the joint dict is identical.
 
 Examples:
     # MuJoCo viewer, stepping in place (walk)
-    quad-gait-demo --backend sim --viewer
+    mjpython scripts/gait_demo.py --backend sim --viewer
 
-    # Trot with small body forward velocity
-    quad-gait-demo --backend sim --viewer --gait trot --vx 50
+    # Trot with body forward velocity
+    mjpython scripts/gait_demo.py --backend sim --viewer --gait trot --vx 50
+
+    # Turn in place, then an arc
+    mjpython scripts/gait_demo.py --backend sim --viewer --yaw-rate 0.5
+    mjpython scripts/gait_demo.py --backend sim --viewer --vx 40 --yaw-rate 0.3
 
     # Real hardware (verify in sim first!)
-    quad-gait-demo --backend hw -p /dev/cu.usbserial-XXXX
+    python scripts/gait_demo.py --backend hw -p /dev/cu.usbserial-XXXX
 """
+from __future__ import annotations
+
 import argparse
 import math
 import sys
 import time
 
 import mujoco
-import numpy as np
 
 # Run directly (`python scripts/x.py`) without depending on `pip install -e .`:
 # put src/ on the path before importing quadruped. The editable install's .pth
@@ -40,44 +44,9 @@ _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent.parent / "src")
 from quadruped.backends import MujocoBackend
 from quadruped.cli_args import add_backend_args, build_backend
 from quadruped.config import CONFIG
-from quadruped.control.gait import GaitScheduler, TROT_PRESET, WALK_PRESET
-from quadruped.kinematics.ik import joint_angles
-from quadruped.sim.env import model_path
-
-
-def _leg_yaw_rad(model: mujoco.MjModel, leg: str) -> float:
-    # All four shoulder bodies use a pure z-yaw quaternion, so
-    # quat = (cos(θ/2), 0, 0, sin(θ/2)).
-    w, _, _, z = model.body(f"shoulder_{leg}").quat
-    return 2.0 * float(math.atan2(z, w))
-
-
-def _rotz_xy(theta: float) -> np.ndarray:
-    c, s = math.cos(theta), math.sin(theta)
-    return np.array([[c, -s], [s, c]])
-
-
-def _build_leg_pose(model: mujoco.MjModel) -> dict:
-    # The hip-frame origin FK/IK rotate about is the shoulder *rotation axis*,
-    # not the shoulder body origin: the joint sits at a local offset inside the
-    # body (shoulder_joint pos in the MJCF). Recover the axis in body frame as
-    # body.pos + Rz(yaw)·jnt_pos so it lands on the design corner (±75, ±75)
-    # regardless of that offset.
-    pose = {}
-    for leg in CONFIG.legs:
-        body = model.body(f"shoulder_{leg}")
-        yaw = _leg_yaw_rad(model, leg)
-        jnt_pos = np.asarray(model.joint(f"shoulder_joint_{leg}").pos, dtype=float)
-        xy = _rotz_xy(yaw) @ jnt_pos[:2]
-        axis = np.asarray(body.pos, dtype=float) + np.array([xy[0], xy[1], jnt_pos[2]])
-        pose[leg] = (axis, yaw)
-    return pose
-
-
-def _body_to_local(p_body: np.ndarray, shoulder_pos: np.ndarray, yaw: float) -> np.ndarray:
-    delta = p_body - shoulder_pos
-    xy = _rotz_xy(-yaw) @ delta[:2]
-    return np.array([xy[0], xy[1], delta[2]])
+from quadruped.control.body import BodyPose
+from quadruped.control.locomotion import LocomotionController
+from quadruped.sim.env import leg_poses, model_path
 
 
 def _any_viewer_closed(backend) -> bool:
@@ -103,36 +72,47 @@ def main() -> int:
                         help="Body forward velocity in body x (mm/s; 0 = step in place)")
     parser.add_argument("--vy", type=float, default=0.0,
                         help="Body lateral velocity in body y (mm/s)")
+    parser.add_argument("--yaw-rate", type=float, default=0.0,
+                        help="Body turn rate about z (rad/s, + = left; 0 = straight)")
+    parser.add_argument("--pitch", type=float, default=0.0,
+                        help="Body pitch (degrees, + = nose up)")
+    parser.add_argument("--roll", type=float, default=0.0,
+                        help="Body roll (degrees, + = right side down)")
+    parser.add_argument("--body-yaw", type=float, default=0.0,
+                        help="Body yaw about z (degrees, + = left)")
+    parser.add_argument("--height", type=float, default=0.0,
+                        help="Ride-height offset from nominal stance (mm, + = taller)")
     parser.add_argument("--duration", type=float, default=None,
                         help="Stop after this many seconds (default: run until Ctrl+C / viewer close)")
     add_backend_args(parser, default="sim")
     args = parser.parse_args()
 
-    preset = WALK_PRESET if args.gait == "walk" else TROT_PRESET
     dt = 1.0 / args.rate
 
     # MJCF is loaded once just to extract per-leg shoulder pose (the geometric
     # source of truth for leg layout). Cheap even for hw-only mode.
     model = mujoco.MjModel.from_xml_path(str(model_path()))
-    pose = _build_leg_pose(model)
+    poses = leg_poses(model)
+    controller = LocomotionController(poses, gait=args.gait)
 
-    # Canonical resting foot position in any leg's local frame.
-    home_local = np.array(CONFIG.target_site_offset_mm, dtype=float)
-    home_body = {}
-    for leg in CONFIG.legs:
-        shoulder_pos, yaw = pose[leg]
-        xy_body = _rotz_xy(yaw) @ home_local[:2]
-        home_body[leg] = shoulder_pos + np.array([xy_body[0], xy_body[1], home_local[2]])
-
-    scheduler = GaitScheduler(**preset, home_positions=home_body)
+    # --pitch is nose-up-positive for the operator; BodyPose is right-handed
+    # about +y, where positive is nose down. Negate once, here.
+    pose = BodyPose(
+        roll=math.radians(args.roll),
+        pitch=-math.radians(args.pitch),
+        yaw=math.radians(args.body_yaw),
+        z=args.height,
+    ).clamped()
     body_velocity = (args.vx, args.vy)
 
-    print(f"gait={args.gait}  rate={args.rate:g} Hz  vx={args.vx:g}  vy={args.vy:g}  backend={args.backend}")
+    print(f"gait={args.gait}  rate={args.rate:g} Hz  vx={args.vx:g}  vy={args.vy:g}  "
+          f"yaw_rate={args.yaw_rate:g}  backend={args.backend}")
     for leg in CONFIG.legs:
-        sp, yaw = pose[leg]
+        sp, yaw = poses[leg]
+        home = controller.home[leg]
         print(f"  {leg}: shoulder@({sp[0]:6.1f},{sp[1]:6.1f},{sp[2]:6.1f}) "
               f"yaw={math.degrees(yaw):+7.2f}°  "
-              f"home_body=({home_body[leg][0]:7.1f},{home_body[leg][1]:7.1f},{home_body[leg][2]:7.1f})")
+              f"home_body=({home[0]:7.1f},{home[1]:7.1f},{home[2]:7.1f})")
 
     backend = build_backend(args)
     with backend:
@@ -140,16 +120,12 @@ def main() -> int:
         deadline = t0
         try:
             while True:
-                scheduler.advance(dt, body_velocity)
-                targets: dict[str, float] = {}
-                for leg in CONFIG.legs:
-                    p_body = scheduler.foot_position(leg)
-                    shoulder_pos, yaw = pose[leg]
-                    p_local = _body_to_local(p_body, shoulder_pos, yaw)
-                    q_sh, q_wg, q_kn = joint_angles(p_local[0], p_local[1], p_local[2])
-                    targets[f"shoulder_{leg}"] = float(q_sh)
-                    targets[f"wing_{leg}"] = float(q_wg)
-                    targets[f"knee_{leg}"] = float(q_kn)
+                targets = controller.step(
+                    dt,
+                    body_velocity=body_velocity,
+                    yaw_rate=args.yaw_rate,
+                    pose=pose,
+                )
                 backend.set_joint_targets(targets)
 
                 if _any_viewer_closed(backend):

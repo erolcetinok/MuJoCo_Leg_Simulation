@@ -66,7 +66,7 @@ def main() -> int:
 
             # One walk of the backend(s): print the estimated foot force from
             # the first current-sensing backend, plus any firmware echo (like
-            # quad-jog). build_backend's mirror is sim+Arduino, so only the
+            # scripts/jog.py). build_backend's mirror is sim+Arduino, so only the
             # plain dxl backend supplies a foot force today.
             force_shown = False
             for b in getattr(backend, "backends", [backend]):

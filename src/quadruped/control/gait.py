@@ -4,9 +4,11 @@ Drives a quadruped through a periodic gait by:
 - tracking a global phase in [0, 1) that advances with time
 - offsetting each leg's local phase by a configured amount
 - splitting each leg's local phase into stance and swing via duty_factor
+- resolving a per-leg ground velocity from the body command, so a yaw rate
+  turns the robot: v_leg = v_body + ω × r_leg  (see leg_velocity)
 - planning footholds with the Raibert heuristic:
-    touch_pos = home + v_body * T_stance / 2
-    lift_pos  = home - v_body * T_stance / 2
+    touch_pos = home + v_leg * T_stance / 2
+    lift_pos  = home - v_leg * T_stance / 2
 - constructing a StanceFootTrajectory or SwingFootTrajectory per leg per tick
   and querying it at the current local s
 
@@ -70,10 +72,11 @@ class GaitScheduler:
     State (mutated by advance()):
     - phase:         current global gait phase in [0, 1)
     - body_velocity: (vx, vy) as last passed to advance()
+    - yaw_rate:      body rotation rate about z (rad/s) as last passed
     """
 
     def __init__(self, period, duty_factor, phase_offsets, home_positions, apex_height):
-        """Store config; initialize phase to 0 and body_velocity to (0, 0)."""
+        """Store config; initialize phase to 0 and the command to rest."""
         self.period = period
         self.duty_factor = duty_factor
         self.phase_offsets = phase_offsets
@@ -82,14 +85,40 @@ class GaitScheduler:
 
         self.phase = 0.0
         self.body_velocity = (0.0, 0.0)
+        self.yaw_rate = 0.0
 
         self.T_stance = period * duty_factor
         self.T_swing = period * (1 - duty_factor)
 
-    def advance(self, dt, body_velocity):
-        """Advance the global phase by dt (seconds) and store body_velocity (a 2-tuple (vx, vy))."""
+    def advance(self, dt, body_velocity, yaw_rate=0.0):
+        """Advance the global phase by dt (s) and store the body command.
+
+        body_velocity is a 2-tuple (vx, vy) in mm/s; yaw_rate is rad/s about the
+        body z-axis, positive counter-clockwise (turn left).
+        """
         self.phase = (self.phase + dt / self.period) % 1.0
         self.body_velocity = body_velocity
+        self.yaw_rate = yaw_rate
+
+    def leg_velocity(self, leg):
+        """Ground velocity this leg's foot must track, as a 2-tuple (vx, vy).
+
+        A body rotating at ω sweeps each leg through a different ground speed
+        depending on where that leg is stationed, so velocity is per-leg rather
+        than global:
+
+            v_leg = v_body + ω × r_leg
+                  = (vx − ω·r_y,  vy + ω·r_x)
+
+        r_leg is the leg's home position in body frame. Pure rotation
+        (v_body = 0) therefore sweeps the left legs backward while the right
+        legs go forward, which is what turns the robot in place.
+        """
+        vx, vy = self.body_velocity
+        if not self.yaw_rate:
+            return vx, vy
+        rx, ry = self.home_positions[leg][0], self.home_positions[leg][1]
+        return vx - self.yaw_rate * ry, vy + self.yaw_rate * rx
 
     def is_swing(self, leg):
         """True if `leg` is currently in swing."""
@@ -114,18 +143,18 @@ class GaitScheduler:
         centered about its home position regardless of body velocity.
         """
         home = self.home_positions[leg]
-        vx, vy = self.body_velocity
+        v_leg = self.leg_velocity(leg)
         # 3D for adding to home; the trajectory classes still take the 2-tuple.
-        v_body_3d = np.array([vx, vy, 0.0])
+        v_leg_3d = np.array([v_leg[0], v_leg[1], 0.0])
 
-        touch_pos = home + v_body_3d * self.T_stance / 2
-        lift_pos  = home - v_body_3d * self.T_stance / 2
+        touch_pos = home + v_leg_3d * self.T_stance / 2
+        lift_pos  = home - v_leg_3d * self.T_stance / 2
 
         local_phase = (self.phase + self.phase_offsets[leg]) % 1.0
         if local_phase < self.duty_factor:
             # Stance: rescale local_phase from [0, duty_factor) to s in [0, 1).
             s = local_phase / self.duty_factor
-            return StanceFootTrajectory(touch_pos, self.T_stance, self.body_velocity), s
+            return StanceFootTrajectory(touch_pos, self.T_stance, v_leg), s
         # Swing: rescale local_phase from [duty_factor, 1) to s in [0, 1).
         s = (local_phase - self.duty_factor) / (1 - self.duty_factor)
-        return SwingFootTrajectory(lift_pos, touch_pos, self.apex_height, self.T_swing, self.body_velocity), s
+        return SwingFootTrajectory(lift_pos, touch_pos, self.apex_height, self.T_swing, v_leg), s

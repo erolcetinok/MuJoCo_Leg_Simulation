@@ -15,8 +15,8 @@ so jog/GUI status text still works; we just never wait.
 
 The host always sends all N joint angles in one line, even if the caller
 only updated a subset — the backend keeps a `_targets` cache for the rest
-(initialized to zeros). This is what lets single-leg CLIs like quad-jog
-or quad-swing-hw drive a single leg without having to know the other
+(initialized to zeros). This is what lets single-leg CLIs like scripts/jog.py
+or python scripts/swing_hw.py drive a single leg without having to know the other
 nine joints exist.
 
 read_joint_state returns empty dicts — the firmware doesn't stream state.
