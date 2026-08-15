@@ -75,6 +75,47 @@ def test_identity_pose_matches_no_pose_exactly(poses):
         assert ta == tb
 
 
+def test_odometry_integrates_forward_motion(poses):
+    c = LocomotionController(poses)
+    for _ in range(100):                          # 2 s at 100 mm/s
+        c.step(0.02, body_velocity=(100.0, 0.0))
+    assert c.odom_x == pytest.approx(200.0, rel=1e-6)
+    assert c.odom_y == pytest.approx(0.0, abs=1e-9)
+
+
+def test_odometry_integrates_turning(poses):
+    c = LocomotionController(poses)
+    for _ in range(100):
+        c.step(0.02, yaw_rate=0.5)
+    assert c.odom_yaw == pytest.approx(1.0, rel=1e-6)
+    assert (c.odom_x, c.odom_y) == pytest.approx((0.0, 0.0), abs=1e-9)
+
+
+def test_driving_while_turning_curves(poses):
+    """Body-frame velocity must be rotated into the world by the heading."""
+    c = LocomotionController(poses)
+    for _ in range(100):
+        c.step(0.02, body_velocity=(100.0, 0.0), yaw_rate=0.5)
+    assert abs(c.odom_y) > 50.0, "a turning robot must leave the x axis"
+
+
+def test_base_pose_combines_odometry_and_body_pose(poses):
+    c = LocomotionController(poses, base_height=80.0)
+    c.step(0.02, body_velocity=(100.0, 0.0))
+    x, y, z, roll, pitch, yaw = c.base_pose(BodyPose(z=20.0, yaw=0.1, pitch=0.05))
+    assert x == pytest.approx(c.odom_x) and y == pytest.approx(c.odom_y)
+    assert z == pytest.approx(100.0), "ride height raises the base"
+    assert yaw == pytest.approx(c.odom_yaw + 0.1), "body yaw adds to heading"
+    assert pitch == pytest.approx(0.05)
+
+
+def test_reset_odometry(poses):
+    c = LocomotionController(poses)
+    c.step(0.02, body_velocity=(100.0, 0.0), yaw_rate=0.3)
+    c.reset_odometry()
+    assert c.odometry == (0.0, 0.0, 0.0)
+
+
 def test_stance_summary_names_every_leg(poses):
     summary = LocomotionController(poses).stance_summary()
     for leg in CONFIG.legs:

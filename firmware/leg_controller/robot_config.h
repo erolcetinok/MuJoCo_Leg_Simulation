@@ -9,7 +9,7 @@
 #define N_JOINTS 12
 #define N_LEGS 4
 
-// Joint order is the canonical YAML order: legs FL, FR, BL, BR × joints
+// Joint order is the canonical YAML order: legs FL, FR, BL, BR x joints
 // shoulder, wing, knee. The host wire format and the syncWrite packet both
 // follow this index order.
 static const uint8_t IDS[N_JOINTS] = {

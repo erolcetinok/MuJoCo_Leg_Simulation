@@ -13,6 +13,8 @@ Stateless apart from the gait phase held by the scheduler.
 """
 from __future__ import annotations
 
+import math
+
 from typing import Optional
 
 import numpy as np
@@ -42,13 +44,54 @@ def home_positions(leg_poses: dict) -> dict:
 class LocomotionController:
     """Owns the gait scheduler and turns a body command into joint targets."""
 
-    def __init__(self, leg_poses: dict, gait: str = "walk"):
+    def __init__(self, leg_poses: dict, gait: str = "walk", *, base_height: float = 80.0):
         if gait not in GAIT_PRESETS:
             raise ValueError(f"unknown gait: {gait!r} (known: {', '.join(GAIT_PRESETS)})")
         self.leg_poses = leg_poses
         self.home = home_positions(leg_poses)
         self.gait = gait
         self.scheduler = GaitScheduler(**GAIT_PRESETS[gait], home_positions=self.home)
+
+        # Dead-reckoned base pose in the world, integrated from the commanded
+        # body velocity. Open-loop by construction: it is where the robot would
+        # be if the feet never slipped, which is exactly what the kinematic sim
+        # should display. On hardware it is ignored (see RobotBackend.set_base_pose).
+        self.base_height = base_height
+        self.odom_x = 0.0
+        self.odom_y = 0.0
+        self.odom_yaw = 0.0
+
+    @property
+    def odometry(self) -> tuple:
+        """(x, y, heading) in world frame — mm and radians."""
+        return (self.odom_x, self.odom_y, self.odom_yaw)
+
+    def reset_odometry(self) -> None:
+        self.odom_x = self.odom_y = self.odom_yaw = 0.0
+
+    def base_pose(self, pose: Optional[BodyPose] = None) -> tuple:
+        """Where to draw the base: odometry plus the commanded body pose.
+
+        The body-pose offsets are applied to the base *and* subtracted from the
+        foot targets, so raising or tilting the body moves the chassis while the
+        feet stay planted — which is the whole point of body-pose control.
+        """
+        pose = pose or BodyPose()
+        return (
+            self.odom_x,
+            self.odom_y,
+            self.base_height + pose.z,
+            pose.roll,
+            pose.pitch,
+            self.odom_yaw + pose.yaw,
+        )
+
+    def _integrate_odometry(self, dt: float, body_velocity: tuple, yaw_rate: float) -> None:
+        vx, vy = body_velocity
+        c, s = math.cos(self.odom_yaw), math.sin(self.odom_yaw)
+        self.odom_x += (vx * c - vy * s) * dt
+        self.odom_y += (vx * s + vy * c) * dt
+        self.odom_yaw += yaw_rate * dt
 
     def set_gait(self, gait: str) -> None:
         """Switch gait preset, preserving the current phase so it doesn't jump."""
@@ -81,6 +124,7 @@ class LocomotionController:
     ) -> dict:
         """Advance one control tick and return {joint_name: angle_rad} for all 12."""
         self.scheduler.advance(dt, body_velocity, yaw_rate)
+        self._integrate_odometry(dt, body_velocity, yaw_rate)
         targets: dict = {}
         for leg, p_local in self.foot_targets(pose).items():
             q_sh, q_wg, q_kn = joint_angles(p_local[0], p_local[1], p_local[2])
@@ -91,6 +135,6 @@ class LocomotionController:
 
     def stance_summary(self) -> str:
         """Compact per-leg stance/swing string for the teleop HUD."""
-        return "  ".join(
+        return " ".join(
             f"{leg}:{'sw' if self.scheduler.is_swing(leg) else 'st'}" for leg in CONFIG.legs
         )

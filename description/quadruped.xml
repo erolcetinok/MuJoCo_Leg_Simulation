@@ -1,9 +1,26 @@
 <mujoco model="quadruped">
     <compiler angle="radian"/>
+    <!-- Pin the reference scale to the ROBOT, not the scene. Every quantity in
+         <visual><map> below is a *fraction of model extent*, and extent is
+         otherwise inferred from the bounding box — which the 12 m ground plane
+         would dominate, pushing the near clipping plane metres away and making
+         the robot vanish as soon as you zoom in. 400 mm ≈ the robot itself. -->
+    <statistic extent="400" center="0 0 80"/>
+
     <visual>
-        <quality shadowsize="4096" offsamples="8"/>
-        <map fogstart="2000" fogend="6000" znear="0.1"/>
-        <rgba haze="1 1 1 1"/>
+        <quality shadowsize="8192" offsamples="8"/>
+        <!-- Fractions of the 400 mm extent: near plane 4 mm (zoom right in),
+             far plane 80 m (whole ground plane), fog 2 m -> 8 m so the ground
+             fades into the sky instead of ending at a hard edge. -->
+        <map znear="0.01" zfar="200" fogstart="5" fogend="20"/>
+        <rgba haze="0.82 0.87 0.94 1"/>
+        <!-- Headlight is additive on top of the three scene lights; left at the
+             default it blows the ground out to flat white. -->
+        <headlight ambient="0.35 0.35 0.38" diffuse="0.25 0.25 0.25" specular="0.05 0.05 0.05"/>
+        <!-- Opening free-camera angle: three-quarter view, slightly above. -->
+        <global azimuth="140" elevation="-22" offwidth="1920" offheight="1080"/>
+        <scale framelength="120" framewidth="6" contactwidth="24" contactheight="8"
+               forcewidth="8" com="20"/>
     </visual>
 
     <option gravity="0 0 -981"/>
@@ -13,19 +30,27 @@
         <mesh name="thigh_mesh"    file="meshes/thigh.STL"/>
         <mesh name="foot_mesh"     file="meshes/foot.STL"/>
 
+        <!-- Ground checker. The squares are the motion cue: without them a
+             driving robot looks like it's marching on the spot. One cycle is
+             two squares, so texrepeat is set below to land ~100 mm squares —
+             two-thirds of the 150 mm body, big enough to read at a glance. -->
         <texture name="texgrid" type="2d" builtin="checker"
-                 rgb1="0.2 0.2 0.2" rgb2="0.85 0.85 0.85"
+                 rgb1="0.42 0.47 0.54" rgb2="0.66 0.71 0.77"
+                 mark="edge" markrgb="0.45 0.49 0.55"
                  width="512" height="512"/>
-        <material name="grid" texture="texgrid" texrepeat="10 10" reflectance="0.2"/>
-        <!-- screenshot-friendly sky + materials -->
+        <material name="grid" texture="texgrid" texrepeat="60 60"
+                  specular="0.05" shininess="0.05" reflectance="0.0"/>
+
         <texture name="sky" type="skybox" builtin="gradient"
-                 rgb1="0.97 0.98 1.00" rgb2="0.80 0.86 0.95"
+                 rgb1="0.55 0.68 0.86" rgb2="0.86 0.90 0.95"
                  width="1024" height="1024"/>
 
-        <material name="robot_mat" rgba="0.25 0.25 0.27 1"
-                  specular="0.35" shininess="0.6" reflectance="0.15"/>
-        <material name="ground_mat" rgba="0.95 0.95 0.96 1"
-                  specular="0.05" shininess="0.2" reflectance="0.05"/>
+        <!-- Dark chassis, lighter legs: the contrast is what makes the gait
+             legible from across a table. -->
+        <material name="robot_mat" rgba="0.16 0.17 0.20 1"
+                  specular="0.5" shininess="0.75" reflectance="0.2"/>
+        <material name="leg_mat" rgba="0.58 0.61 0.66 1"
+                  specular="0.6" shininess="0.6" reflectance="0.15"/>
     </asset>
 
     <!-- Defaults for repeated values -->
@@ -46,15 +71,20 @@
 
         <!-- Geom defaults for mesh rotations -->
         <default class="mesh_geom">
-            <geom type="mesh" quat="0.7071068 0.7071068 0 0"/>
+            <geom type="mesh" quat="0.7071068 0.7071068 0 0" material="leg_mat"/>
         </default>
 
         <!-- Site defaults -->
+        <!-- Per-leg colour: makes it obvious which foot is swinging. -->
         <default class="foot_site">
-            <site pos="21 -12 0" size="1"/>
+            <site pos="21 -12 0" size="5"/>
         </default>
+        <!-- Mocap handles at the nominal home footholds, kept for future
+             drag-the-target IK work. Hidden (alpha 0): they're fixed in the
+             world, so once the robot drives off they just sit at the origin
+             looking like debris. Raise alpha to get them back. -->
         <default class="target_site">
-            <site pos="0 0 0" size="5" rgba="1 0.5 0 1"/>
+            <site pos="0 0 0" size="5" rgba="1 0.5 0 0"/>
         </default>
 
         <!-- Actuator defaults -->
@@ -70,19 +100,31 @@
     </default>
 
     <worldbody>
-        <geom name="ground" pos = "0 0 0" type="plane" size="1000 1000 0.1" material="ground_mat" rgba="1 1 1 1"/>
+        <!-- 12 m square. The old 2 m plane was fine when the base was welded;
+             now that the robot actually drives, it would run off the edge in
+             about 20 seconds. -->
+        <geom name="ground" pos="0 0 0" type="plane" size="6000 6000 50" material="grid"/>
 
         <!-- key / fill / rim lights for clean screenshots -->
         <light name="key"  pos="200 200 500" dir="-0.4 -0.4 -1" directional="true"
-               diffuse="0.9 0.9 0.9" specular="0.4 0.4 0.4" castshadow="true"/>
+               diffuse="0.55 0.55 0.55" specular="0.3 0.3 0.3" castshadow="true"/>
         <light name="fill" pos="-300 100 300" dir="0.8 -0.2 -1" directional="true"
-               diffuse="0.45 0.45 0.5" specular="0.1 0.1 0.1" castshadow="false"/>
+               diffuse="0.25 0.25 0.28" specular="0.05 0.05 0.05" castshadow="false"/>
         <light name="rim"  pos="0 -400 250" dir="0.0 1.0 -0.6" directional="true"
                diffuse="0.35 0.35 0.4" specular="0.25 0.25 0.25" castshadow="false"/>
 
-<!--        <site name="world_x" type="capsule" fromto="0 0 0  3 0 0" size="0.05" rgba="1 0 0 1"/>-->
-<!--        <site name="world_y" type="capsule" fromto="0 0 0  0 3 0" size="0.05" rgba="0 1 0 1"/>-->
-<!--        <site name="world_z" type="capsule" fromto="0 0 0  0 0 3" size="0.05" rgba="0 0 1 1"/>-->
+        <!-- World origin triad: X red (forward), Y green (left), Z blue (up) —
+             the body frame convention the whole codebase uses. Lengths in mm.
+             Arrows are a thin shaft plus a fatter head because MuJoCo has no
+             cone/arrow site type. The horizontal pair sits 1 mm up so it doesn't
+             z-fight with the ground plane. Toggle them off with the viewer's
+             site flag if they get in the way. -->
+        <site name="world_x"      type="capsule"  fromto="0 0 1  46 0 1"  size="1.6" rgba="0.85 0.15 0.15 1"/>
+        <site name="world_x_head" type="cylinder" fromto="46 0 1  58 0 1" size="4"   rgba="0.85 0.15 0.15 1"/>
+        <site name="world_y"      type="capsule"  fromto="0 0 1  0 46 1"  size="1.6" rgba="0.15 0.7 0.2 1"/>
+        <site name="world_y_head" type="cylinder" fromto="0 46 1  0 58 1" size="4"   rgba="0.15 0.7 0.2 1"/>
+        <site name="world_z"      type="capsule"  fromto="0 0 0  0 0 46"  size="1.6" rgba="0.2 0.35 0.9 1"/>
+        <site name="world_z_head" type="cylinder" fromto="0 0 46  0 0 58" size="4"   rgba="0.2 0.35 0.9 1"/>
 
         <!-- Body: X-config layout. 150×150 mm axis-aligned plate; +x = forward,
              +y = left, +z = up. Four shoulder hinge axes sit on the corners; each
@@ -91,7 +133,25 @@
              angled up to raised knees (wing/knee on the negative side of zero); home-pose
              feet 80 mm below the shoulders (leg ~70% extended) resting on the ground. -->
         <body name="body" pos="0 0 80">
+            <!-- Free base so the robot can actually translate and turn in the
+                 world. Nothing steps physics (MujocoBackend writes qpos and
+                 calls mj_forward), so this does not fall under gravity — the
+                 base pose is dead-reckoned from the commanded body velocity by
+                 LocomotionController and written straight in. That makes the
+                 viewer show what the command *means* instead of marching in
+                 place. When a physics backend arrives, this joint is what it
+                 will integrate for real. -->
+            <freejoint name="root"/>
             <geom type="box" size="75 75 15" material="robot_mat"/>
+
+            <!-- Chase cameras. They translate with the robot but keep world
+                 orientation, so driving and turning stay watchable instead of
+                 swinging the whole scene around. Cycle with [ and ] in the
+                 viewer; Esc returns to the free camera. -->
+            <camera name="chase" mode="trackcom" pos="-620 -620 430"
+                    xyaxes="0.707 -0.707 0  0.304 0.304 0.905"/>
+            <camera name="overhead" mode="trackcom" pos="0 0 1400"
+                    xyaxes="1 0 0  0 1 0"/>
 
             <!-- FRONT LEFT (FL) — shoulder axis at (+75, +75), leg points NE (yaw=135°).
                  Body origin = corner − Rz(135°)·(20.25,-15,0) so the hinge axis lands on the corner. -->

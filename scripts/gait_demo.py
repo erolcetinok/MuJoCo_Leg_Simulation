@@ -78,8 +78,6 @@ def main() -> int:
                         help="Body pitch (degrees, + = nose up)")
     parser.add_argument("--roll", type=float, default=0.0,
                         help="Body roll (degrees, + = right side down)")
-    parser.add_argument("--body-yaw", type=float, default=0.0,
-                        help="Body yaw about z (degrees, + = left)")
     parser.add_argument("--height", type=float, default=0.0,
                         help="Ride-height offset from nominal stance (mm, + = taller)")
     parser.add_argument("--duration", type=float, default=None,
@@ -100,7 +98,6 @@ def main() -> int:
     pose = BodyPose(
         roll=math.radians(args.roll),
         pitch=-math.radians(args.pitch),
-        yaw=math.radians(args.body_yaw),
         z=args.height,
     ).clamped()
     body_velocity = (args.vx, args.vy)
@@ -111,7 +108,7 @@ def main() -> int:
         sp, yaw = poses[leg]
         home = controller.home[leg]
         print(f"  {leg}: shoulder@({sp[0]:6.1f},{sp[1]:6.1f},{sp[2]:6.1f}) "
-              f"yaw={math.degrees(yaw):+7.2f}°  "
+              f"yaw={math.degrees(yaw):+7.2f} deg  "
               f"home_body=({home[0]:7.1f},{home[1]:7.1f},{home[2]:7.1f})")
 
     backend = build_backend(args)
@@ -127,6 +124,7 @@ def main() -> int:
                     pose=pose,
                 )
                 backend.set_joint_targets(targets)
+                backend.set_base_pose(*controller.base_pose(pose))
 
                 if _any_viewer_closed(backend):
                     break

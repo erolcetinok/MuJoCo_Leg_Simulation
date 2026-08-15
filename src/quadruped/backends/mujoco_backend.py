@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+import math
 import mujoco
 
 from quadruped.backends.base import RobotBackend
@@ -25,9 +26,15 @@ class MujocoBackend(RobotBackend):
         self._viewer = None
         self._qpos_idx: dict[str, int] = {}
         self._qvel_idx: dict[str, int] = {}
+        self._base_qpos: Optional[int] = None
 
     def connect(self) -> None:
         self.model, self.data = load_model(self._xml)
+        try:
+            # Free base, if this model has one: 7 qpos (x y z, then wxyz quat).
+            self._base_qpos = int(self.model.joint("root").qposadr[0])
+        except KeyError:
+            self._base_qpos = None
         for joint in CONFIG.joints:
             try:
                 jnt = self.model.joint(joint.mjcf_name)
@@ -60,6 +67,25 @@ class MujocoBackend(RobotBackend):
         mujoco.mj_forward(self.model, self.data)
         if self._viewer is not None and self._viewer.is_running():
             self._viewer.sync()
+
+    def set_base_pose(self, x: float, y: float, z: float,
+                      roll: float, pitch: float, yaw: float) -> None:
+        """Write the free base straight into qpos. No-op if the model is welded."""
+        if self._base_qpos is None:
+            return
+        i = self._base_qpos
+        self.data.qpos[i:i + 3] = (x, y, z)
+        # ZYX euler -> wxyz quaternion, matching control.body's rotation order.
+        cr, sr = math.cos(roll / 2), math.sin(roll / 2)
+        cp, sp = math.cos(pitch / 2), math.sin(pitch / 2)
+        cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
+        self.data.qpos[i + 3:i + 7] = (
+            cr * cp * cy + sr * sp * sy,
+            sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy,
+            cr * cp * sy - sr * sp * cy,
+        )
+        mujoco.mj_forward(self.model, self.data)
 
     def read_joint_state(self) -> tuple[dict[str, float], dict[str, float]]:
         assert self.data is not None

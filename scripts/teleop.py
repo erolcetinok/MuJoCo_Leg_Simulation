@@ -4,16 +4,24 @@ Drive, turn, and command body attitude from the terminal while the gait runs.
 Works with any backend, so the same command flies the sim today and the real
 robot over SSH later (no display needed for the control loop itself).
 
-  W/S  forward / back        Up/Down     pitch          1/2    walk / trot
-  A/D  strafe left / right   Left/Right  roll           SPACE  zero commands
-  Q/E  turn left / right     , / .       body yaw       X      e-stop
-                             R/F         ride height    H      toggle help
-  [ ]  velocity STEP -/+     ; '         velocity SLEW -/+
-  < >  yaw STEP -/+          : "         yaw SLEW -/+   Ctrl-C / ESC  quit
+  drive   fwd:w/s   strafe:a/d   turn:q/e
+  posture pitch:i/k   roll:j/l   height:r/f
+  mode    gait:1/2   stop:SPACE   estop:x   deadman:g   hide:h   quit:ESC
+  feel    sens:[/]   smooth:;/'   fine:SHIFT
 
-Two knobs shape every axis: STEP is how far one tap moves the setpoint, SLEW is
-how fast the command ramps toward it. Velocity decays to zero shortly after you
-stop pressing keys, so releasing the keys stops the robot.
+  Holding SHIFT on any key gives a tenth as much.
+
+Each tap moves a setpoint by one step and the command then ramps toward it under
+a slew limit, so nothing jumps mid-stride. `sens` sets the step (+/- 1 mm/s per
+press) and `smooth` sets the ramp (+/- 1 mm/s^2), both in round units, so the
+value you want is just the number of presses. Attitude and ride height step by a
+fixed 1 deg and 1 mm.
+
+Setpoints **hold** where you leave them — set a speed and it stays until you
+change it. `--decay-after 0.3` (or G) switches to deadman mode instead, where
+velocity decays to zero shortly after you stop pressing keys. Worth turning on
+for real hardware: with setpoints holding, a dropped SSH session leaves the
+robot driving.
 
 Examples:
     mjpython scripts/teleop.py --backend sim --viewer
@@ -40,12 +48,13 @@ _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent.parent / "src")
 
 from quadruped.backends import MujocoBackend
 from quadruped.cli_args import add_backend_args, build_backend
-from quadruped.control.command import CommandShaper, default_axes
+from quadruped.control.command import (
+    CommandShaper,
+    decode_keys,
+    default_axes,
+)
 from quadruped.control.locomotion import LocomotionController
 from quadruped.sim.env import leg_poses, model_path
-
-_ARROWS = {"A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT"}
-
 
 class RawKeys:
     """Unbuffered, non-blocking single keystrokes from stdin.
@@ -71,26 +80,29 @@ class RawKeys:
             termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved)
 
     def read(self) -> list:
-        """Every key pressed since the last call, decoded. Never blocks."""
+        """Every key pressed since the last call, decoded. Never blocks.
+
+        Reads raw bytes with os.read rather than sys.stdin.read: select() polls
+        the file descriptor, but sys.stdin is buffered, so a three-byte arrow
+        sequence lands in Python's buffer where select can't see it — the arrow
+        then decodes as a bare ESC and quits the program.
+        """
         if not self.interactive:
             return []
-        keys = []
+        buf = ""
         while select.select([sys.stdin], [], [], 0)[0]:
-            ch = sys.stdin.read(1)
-            if not ch:
+            chunk = os.read(self._fd, 1024).decode(errors="ignore")
+            if not chunk:
                 break
-            if ch == "\x1b":
-                # Escape alone, or the prefix of an arrow-key sequence (ESC [ A).
-                if select.select([sys.stdin], [], [], 0.01)[0]:
-                    seq = sys.stdin.read(1)
-                    if seq == "[" and select.select([sys.stdin], [], [], 0.01)[0]:
-                        keys.append(_ARROWS.get(sys.stdin.read(1), ""))
-                        continue
-                    continue
-                keys.append("ESC")
-                continue
-            keys.append(ch)
-        return keys
+            buf += chunk
+        if not buf:
+            return []
+        # A chunk that ends mid-escape would decode as a quit; give the rest of
+        # the sequence a moment to land.
+        if buf.endswith("\x1b") or buf.endswith("\x1b["):
+            if select.select([sys.stdin], [], [], 0.02)[0]:
+                buf += os.read(self._fd, 8).decode(errors="ignore")
+        return decode_keys(buf)
 
 
 def _any_viewer_closed(backend) -> bool:
@@ -100,35 +112,69 @@ def _any_viewer_closed(backend) -> bool:
     return False
 
 
+# Every line in the panel starts with the same 8-column label, so the whole
+# thing reads as one table. `what:keys` pairs put the action first — you scan
+# for the thing you want to do, not for a key. Spacing rather than semicolons
+# separates them, because `;` is itself the smoothing binding.
+_LABEL = 8
+
 HELP_LINES = [
-    "  W/S vx   A/D vy   Q/E turn      arrows: pitch/roll    , . body yaw   R/F height",
-    "  1 walk  2 trot   SPACE zero   X e-stop   [ ] step   ; ' slew   < > : \" yaw   ESC quit",
+    f"  {'drive':<{_LABEL}}   fwd: w/s   strafe: a/d      turn: q/e",
+    f"  {'posture':<{_LABEL}} pitch: i/k     roll: j/l    height: r/f",
+    f"  {'feel':<{_LABEL}}  sens: [ ]   smooth: ; '      fine: SHIFT",
+    f"  {'mode':<{_LABEL}}  gait: 1/2     stop: SPACE   estop: x   deadman: g   hide: h   quit: ESC",
 ]
 
 
 def _hud(shaper: CommandShaper, controller: LocomotionController, show_help: bool) -> str:
+    """Two columns mirroring the key groups: what you drive, how it's carried.
+
+    One value per row, and every line shares the same label column so the panel
+    reads as a single table. Fixed settings (step sizes, the shift rule) sit on
+    the `feel` line rather than being repeated per row.
+    """
     a = shaper.axes
     deg = math.degrees
 
-    def row(label, axis, scale=1.0, fmt="{:+7.1f}"):
-        act = fmt.format(axis.actual * scale)
-        sp = fmt.format(axis.setpoint * scale)
-        return (f"  {label:<10} {act} -> {sp} {axis.unit:<6}"
-                f"step {axis.step * scale:6.2f}  slew {axis.slew * scale:7.2f}")
+    def row(label, axis, unit, scale=1.0, fmt="{:>6.1f}"):
+        """`label  value  unit` — the commanded value, one number.
 
-    lines = [
-        row("vx", a["vx"]),
-        row("vy", a["vy"]),
-        row("yaw rate", a["yaw_rate"], fmt="{:+7.2f}"),
+        The setpoint isn't shown: it only differs from the actual value during
+        the brief slew ramp, so a second column was the same number twice
+        almost all the time.
+        """
+        # `or 0.0` collapses negative zero, which the pitch row's sign flip
+        # produces at rest and which reads as a fault.
+        value = fmt.format((axis.actual * scale) or 0.0)
+        return f"{label:<{_LABEL}}{value} {unit:<5}"
+
+    drive = [
+        row("vx", a["vx"], "mm/s"),
+        row("vy", a["vy"], "mm/s"),
+        row("turn", a["yaw_rate"], "rad/s", fmt="{:>6.2f}"),
+    ]
+    posture = [
+        # Shown nose-up-positive; BodyPose.pitch is nose-down-positive.
+        row("pitch", a["pitch"], "deg", -deg(1.0)),
+        row("roll", a["roll"], "deg", deg(1.0)),
+        row("height", a["height"], "mm"),
+    ]
+
+    mode = "E-STOP" if shaper.estopped else (
+        "hold" if not shaper.deadman else f"deadman {shaper.decay_after:.1f}s")
+    gutter = 4
+    width = len(drive[0]) + gutter
+
+    lines = ["  " + "DRIVE".ljust(width) + "POSTURE"]
+    lines += [f"  {d}{' ' * gutter}{p}".rstrip() for d, p in zip(drive, posture)]
+    lines += [
         "",
-        # Displayed nose-up-positive; BodyPose.pitch itself is nose-down-positive.
-        row("nose up°", a["pitch"], -deg(1.0)),
-        row("roll°", a["roll"], deg(1.0)),
-        row("body yaw°", a["body_yaw"], deg(1.0)),
-        row("height", a["height"]),
-        "",
-        f"  gait {controller.gait:<6} contact {controller.stance_summary()}"
-        + ("   [E-STOP]" if shaper.estopped else ""),
+        f"  {'gait':<{_LABEL}}{controller.gait}; {controller.stance_summary()}; {mode}",
+        f"  {'odom':<{_LABEL}}x {controller.odom_x / 1000:+.2f} m;"
+        f" y {controller.odom_y / 1000:+.2f} m;"
+        f" heading {deg(controller.odom_yaw) % 360:.1f} deg",
+        f"  {'feel':<{_LABEL}}tap {a['vx'].step:g} mm/s; ramp {a['vx'].slew:g} mm/s^2;"
+        f" pitch {deg(a['pitch'].step):g} deg; height {a['height'].step:g} mm; SHIFT = x0.1",
     ]
     if show_help:
         lines += [""] + HELP_LINES
@@ -154,8 +200,10 @@ def main() -> int:
                         help="Turn-rate ramp (rad/s^2, default 0.5)")
     parser.add_argument("--yaw-max", type=float, default=1.0,
                         help="Turn-rate limit (rad/s, default 1.0)")
-    parser.add_argument("--decay-after", type=float, default=0.3,
-                        help="Seconds without a key before velocity decays to zero (default 0.3)")
+    parser.add_argument("--decay-after", type=float, default=0.0,
+                        help="Deadman: seconds without a key before velocity decays to zero. "
+                             "0 (default) means setpoints hold until you change them. "
+                             "Try 0.3 on real hardware; toggle live with G.")
     parser.add_argument("--duration", type=float, default=None,
                         help="Stop after this many seconds (default: run until quit)")
     add_backend_args(parser, default="sim")
@@ -199,6 +247,7 @@ def main() -> int:
                     controller.step(dt, body_velocity=cmd.body_velocity,
                                     yaw_rate=cmd.yaw_rate, pose=cmd.pose)
                 )
+                backend.set_base_pose(*controller.base_pose(cmd.pose))
 
                 if keys.interactive:
                     frame = _hud(shaper, controller, show_help)

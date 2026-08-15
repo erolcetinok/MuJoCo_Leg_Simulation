@@ -11,9 +11,14 @@ import math
 import pytest
 
 from quadruped.control.command import (
+    _NUDGES,
+    _SLEW_KEYS,
+    _STEP_KEYS,
+    FINE_SCALE,
     VELOCITY_AXES,
     CommandShaper,
     ShapedAxis,
+    decode_keys,
     default_axes,
 )
 
@@ -64,6 +69,30 @@ def test_hard_zero_bypasses_the_slew_limit():
 
 # --- decay --------------------------------------------------------------------
 
+def test_setpoints_hold_by_default():
+    """The default is 'set it and it stays' — no decay unless asked for."""
+    s = CommandShaper(default_axes(v_step=40.0))
+    assert not s.deadman
+    s.key("w")
+    held = s.axes["vx"].setpoint
+    for _ in range(200):                # 4 s of nothing
+        s.update(0.02)
+    assert s.axes["vx"].setpoint == pytest.approx(held)
+    assert s.axes["vx"].actual == pytest.approx(held)
+
+
+def test_deadman_can_be_toggled_live():
+    s = CommandShaper(default_axes(v_step=40.0, v_slew=1000.0))
+    s.key("w")
+    s.key("g")
+    assert s.deadman
+    for _ in range(40):
+        s.update(0.02)
+    assert s.axes["vx"].actual == pytest.approx(0.0)
+    s.key("g")
+    assert not s.deadman
+
+
 def test_velocity_decays_to_zero_once_idle():
     s = CommandShaper(default_axes(v_step=40.0, v_slew=1000.0), decay_after=0.3)
     s.key("w")
@@ -80,7 +109,7 @@ def test_velocity_decays_to_zero_once_idle():
 def test_pose_does_not_decay_when_idle():
     """A commanded attitude should persist; only velocity is deadman-style."""
     s = CommandShaper(default_axes(), decay_after=0.1)
-    s.key("UP")
+    s.key("i")
     held = s.axes["pitch"].setpoint
     for _ in range(50):
         s.update(0.02)
@@ -104,8 +133,7 @@ def test_holding_a_key_keeps_it_alive():
         ("a", "vy", +1), ("d", "vy", -1),
         ("q", "yaw_rate", +1), ("e", "yaw_rate", -1),
         ("r", "height", +1),
-        (",", "body_yaw", +1), (".", "body_yaw", -1),
-        ("RIGHT", "roll", +1), ("LEFT", "roll", -1),
+        ("l", "roll", +1), ("j", "roll", -1),
     ],
 )
 def test_movement_keys_move_the_right_axis(key, axis, sign):
@@ -129,13 +157,13 @@ def test_height_lowers_back_toward_nominal_but_never_crouches():
     assert s.axes["height"].setpoint == pytest.approx(0.0)
 
 
-def test_up_arrow_raises_the_nose():
+def test_i_raises_the_nose():
     """UI is nose-up-positive; BodyPose.pitch is nose-down-positive."""
     s = CommandShaper(default_axes())
-    s.key("UP")
+    s.key("i")
     assert s.axes["pitch"].setpoint < 0
     s2 = CommandShaper(default_axes())
-    s2.key("DOWN")
+    s2.key("k")
     assert s2.axes["pitch"].setpoint > 0
 
 
@@ -149,7 +177,7 @@ def test_gait_keys_switch_gait():
 
 def test_space_zeroes_every_setpoint():
     s = CommandShaper(default_axes())
-    for k in ("w", "a", "q", "UP", "r"):
+    for k in ("w", "a", "q", "i", "r"):
         s.key(k)
     s.key(" ")
     assert all(ax.setpoint == 0.0 for ax in s.axes.values())
@@ -177,27 +205,113 @@ def test_other_keys_do_not_quit():
     assert s.key("?") is True
 
 
-def test_step_and_slew_are_tunable_live():
-    s = CommandShaper(default_axes(v_step=10.0, v_slew=100.0))
-    s.key("]")
-    assert s.axes["vx"].step > 10.0
-    s.key("[")
-    s.key("[")
-    assert s.axes["vx"].step < 10.0
+# --- fixed steps, shift for fine ----------------------------------------------
 
-    s.key("'")
-    assert s.axes["vx"].slew > 100.0
-    s.key(";")
-    s.key(";")
-    assert s.axes["vx"].slew < 100.0
+def test_a_tap_always_moves_one_whole_step():
+    """Steps are fixed, so the control can't change under you mid-drive."""
+    s = CommandShaper(default_axes(v_step=10.0))
+    for n in range(1, 5):
+        s.key("w")
+        assert s.axes["vx"].setpoint == pytest.approx(10.0 * n)
+    assert s.axes["vx"].step == 10.0, "step must not drift"
 
 
-def test_yaw_step_and_slew_have_their_own_keys():
-    s = CommandShaper(default_axes(yaw_step=0.1, yaw_slew=0.5))
-    s.key(">")
-    assert s.axes["yaw_rate"].step > 0.1
-    s.key('"')
-    assert s.axes["yaw_rate"].slew > 0.5
+def test_shift_gives_a_tenth_of_a_step():
+    s = CommandShaper(default_axes(v_step=10.0))
+    s.key("W")
+    assert s.axes["vx"].setpoint == pytest.approx(1.0)
+    s.key("W")
+    assert s.axes["vx"].setpoint == pytest.approx(2.0)
+
+
+@pytest.mark.parametrize("coarse,fine", [("w", "W"), ("s", "S"), ("a", "A"), ("d", "D"),
+                                         ("q", "Q"), ("e", "E"), ("i", "I"), ("k", "K"),
+                                         ("j", "J"), ("l", "L"), ("r", "R"), ("f", "F")])
+def test_every_movement_key_has_a_shift_fine_variant(coarse, fine):
+    a = CommandShaper(default_axes())
+    b = CommandShaper(default_axes())
+    a.key(coarse)
+    b.key(fine)
+    axis = _NUDGES[coarse][0]
+    assert b.axes[axis].setpoint == pytest.approx(a.axes[axis].setpoint * FINE_SCALE)
+
+
+def test_shift_steps_go_the_same_direction_as_coarse():
+    s = CommandShaper(default_axes())
+    s.key("S")
+    assert s.axes["vx"].setpoint < 0, "shift changes size, never direction"
+
+
+def test_height_steps_are_one_millimetre():
+    """Round numbers in each axis's own unit — 1 mm, 1 degree."""
+    s = CommandShaper(default_axes())
+    s.key("r")
+    assert s.axes["height"].setpoint == pytest.approx(1.0)
+    s.key("R")
+    assert s.axes["height"].setpoint == pytest.approx(1.1)
+
+
+def test_attitude_steps_are_one_degree():
+    s = CommandShaper(default_axes())
+    s.key("k")                                   # nose down = +pitch
+    assert math.degrees(s.axes["pitch"].setpoint) == pytest.approx(1.0)
+    s.key("K")
+    assert math.degrees(s.axes["pitch"].setpoint) == pytest.approx(1.1)
+
+
+# --- terminal key decoding ----------------------------------------------------
+
+def test_ordinary_keys_pass_straight_through():
+    assert decode_keys("wasd") == ["w", "a", "s", "d"]
+
+
+def test_lone_escape_means_quit():
+    assert decode_keys("\x1b") == ["ESC"]
+
+
+@pytest.mark.parametrize("seq", ["\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D"])
+def test_arrow_keys_are_ignored_not_treated_as_quit(seq):
+    """Arrows aren't bound, but they must not exit the program.
+
+    A terminal sends Up as ESC [ A. Read naively, the leading ESC is the quit
+    key — which is exactly what happened before: pressing an arrow killed
+    teleop. Nothing is bound to arrows now, so they're swallowed whole.
+    """
+    assert decode_keys(seq) == []
+
+
+def test_arrows_mixed_with_real_keys_lose_only_themselves():
+    assert decode_keys("w\x1b[Aa\x1b[Cs") == ["w", "a", "s"]
+
+
+def test_longer_csi_sequences_are_swallowed():
+    """Function keys and mouse reports carry parameters before the final byte."""
+    assert decode_keys("\x1b[1;5Aw") == ["w"]
+
+
+def test_arrows_never_quit_through_the_shaper():
+    s = CommandShaper(default_axes())
+    for k in decode_keys("\x1b[A\x1b[D"):
+        assert s.key(k) is not False
+    assert all(ax.setpoint == 0.0 for ax in s.axes.values()), "arrows do nothing"
+
+
+def test_the_key_map_is_only_what_a_driver_needs():
+    """Guard against the control surface creeping back up.
+
+    Every bound key must be a degree of freedom, a mode, or one of the two
+    feel knobs. Body yaw and the per-axis tuning keys were deliberately cut.
+    """
+    s = CommandShaper(default_axes())
+    bound = (set(_NUDGES) | {" ", "x", "g", "1", "2", "h"}
+             | set(_STEP_KEYS) | set(_SLEW_KEYS))
+    for dead in (",", ".", "<", ">"):
+        assert dead not in bound
+    assert set(_NUDGES) == {
+        "w", "s", "a", "d", "q", "e", "i", "k", "j", "l", "r", "f"
+    }, "one key pair per DOF: WASD drives, IJKL + R/F sets posture"
+    assert not any(len(k) > 1 for k in _NUDGES), "single characters only — no escape sequences"
+    assert "body_yaw" not in s.axes
 
 
 # --- command assembly ---------------------------------------------------------
@@ -214,3 +328,66 @@ def test_update_returns_a_clamped_command():
 
 def test_velocity_axes_are_the_decaying_ones():
     assert set(VELOCITY_AXES) == {"vx", "vy", "yaw_rate"}
+
+
+# --- feel keys: additive, shift for a tenth ------------------------------------
+
+def test_sensitivity_moves_by_exactly_one_per_press():
+    """Additive, not multiplicative: the value you want is the press count."""
+    s = CommandShaper(default_axes(v_step=10.0))
+    s.key("]")
+    assert s.axes["vx"].step == pytest.approx(11.0)
+    s.key("]")
+    assert s.axes["vx"].step == pytest.approx(12.0)
+    s.key("[")
+    assert s.axes["vx"].step == pytest.approx(11.0)
+
+
+def test_shift_sensitivity_moves_by_a_tenth():
+    s = CommandShaper(default_axes(v_step=10.0))
+    s.key("}")
+    assert s.axes["vx"].step == pytest.approx(10.1)
+    s.key("{")
+    assert s.axes["vx"].step == pytest.approx(10.0)
+
+
+def test_smoothing_moves_by_exactly_one_per_press():
+    s = CommandShaper(default_axes(v_slew=100.0))
+    s.key("'")
+    assert s.axes["vx"].slew == pytest.approx(101.0)
+    s.key(";")
+    assert s.axes["vx"].slew == pytest.approx(100.0)
+
+
+def test_shift_smoothing_moves_by_a_tenth():
+    s = CommandShaper(default_axes(v_slew=100.0))
+    s.key('"')
+    assert s.axes["vx"].slew == pytest.approx(100.1)
+    s.key(":")
+    assert s.axes["vx"].slew == pytest.approx(100.0)
+
+
+def test_both_drive_axes_stay_in_step():
+    s = CommandShaper(default_axes(v_step=10.0, v_slew=100.0))
+    s.key("]")
+    s.key("'")
+    assert s.axes["vy"].step == s.axes["vx"].step
+    assert s.axes["vy"].slew == s.axes["vx"].slew
+
+
+def test_feel_keys_do_not_disturb_attitude_or_height_steps():
+    """Those already sit at round 1 deg / 1 mm and shouldn't drift."""
+    s = CommandShaper(default_axes())
+    for k in "[];'{}":
+        s.key(k)
+    assert math.degrees(s.axes["pitch"].step) == pytest.approx(1.0)
+    assert s.axes["height"].step == pytest.approx(1.0)
+
+
+def test_sensitivity_and_smoothing_cannot_go_to_zero_or_negative():
+    s = CommandShaper(default_axes(v_step=1.0, v_slew=2.0))
+    for _ in range(50):
+        s.key("[")
+        s.key(";")
+    assert s.axes["vx"].step > 0
+    assert s.axes["vx"].slew > 0

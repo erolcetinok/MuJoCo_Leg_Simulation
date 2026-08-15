@@ -16,9 +16,18 @@ def test_model_path_defaults_to_config():
 
 
 def test_both_models_load_and_pass_yaml_assertions():
-    for name, njnt in (("single_leg", 3), ("quadruped", 12)):
+    """quadruped.xml has 12 actuated joints plus a free base (13 total)."""
+    for name, njnt in (("single_leg", 3), ("quadruped", 13)):
         model, data = load_model(model_path(name))
         assert model.njnt == njnt
+
+
+def test_quadruped_has_a_free_base():
+    """Without this the robot marches in place — it can't translate or turn."""
+    model, _ = load_model(model_path("quadruped"))
+    root = model.joint("root")
+    assert model.nq == 19, "12 hinge joints + 7 free-joint qpos"
+    assert int(root.qposadr[0]) == 0
 
 
 def _fake_viewer(monkeypatch, exc):

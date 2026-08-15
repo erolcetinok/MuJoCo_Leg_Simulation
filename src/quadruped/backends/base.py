@@ -28,6 +28,16 @@ class RobotBackend(ABC):
         """Return (qpos, qvel) dicts keyed by joint name. Either may be empty
         if the backend does not provide that channel."""
 
+    def set_base_pose(self, x: float, y: float, z: float,
+                      roll: float, pitch: float, yaw: float) -> None:
+        """Place the robot's base in the world. Position in mm, angles in rad.
+
+        Only meaningful for simulation: a real robot's base pose is a physical
+        fact, not something you command. Hardware backends inherit this no-op so
+        callers never have to branch on backend type — the same control loop
+        drives sim and hardware, and the sim just shows more of it.
+        """
+
     def __enter__(self):
         self.connect()
         return self
