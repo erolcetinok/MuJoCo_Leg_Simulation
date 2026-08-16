@@ -125,14 +125,14 @@ pip install pre-commit && pre-commit install
 | `docs/HANDBOOK.md` | How the codebase is organised and how to work in it: mental model, repo map, the two pipelines, "I want to…" recipes, debugging playbook. |
 | `docs/CLI.md` | Every command, every flag, when to reach for it. |
 | `docs/INVERSE_KINEMATICS.md` | Full derivation of the closed-form solver, plus the Jacobian / DLS / foot-force math. |
-| `docs/hardware_bringup.md` | BOM and bringup checklist for the full quadruped. |
-| `docs/power_and_electronics.md` | Staged power chain, wiring diagrams, part choices. |
+| `docs/hardware_bringup.md` | **The build doc.** Components, wiring diagram, gauge per connection, bringup runbook. |
+| `docs/power_rationale.md` | Why those parts, what was cut, research sources. |
 | `firmware/README.md` | Arduino UNO bridge path (ARCHIVED), end to end. |
 
 ## Hardware
 
-The hardware is a Raspberry Pi 5 + U2D2 driving twelve XL430-W250 servos — see
-`docs/hardware_bringup.md` for the BOM and the ordered bringup runbook, and
-`docs/power_and_electronics.md` for the power chain. That stack is final; all
-remaining work on this project is software. The Arduino UNO R3 + Dynamixel Shield
-bridge that brought up the first leg is archived in `firmware/README.md`.
+The hardware is a Raspberry Pi 5 + U2D2 driving twelve XL430-W250 servos.
+`docs/hardware_bringup.md` has the components, the wiring diagram with a gauge per
+connection, and the ordered bringup runbook. That stack is final; all remaining
+work on this project is software. The Arduino UNO R3 + Dynamixel Shield bridge
+that brought up the first leg is archived in `firmware/README.md`.
