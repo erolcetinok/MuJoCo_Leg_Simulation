@@ -1,4 +1,12 @@
-"""Serial bridge to firmware/leg_controller/leg_controller.ino.
+"""ARCHIVED — serial bridge to firmware/leg_controller/leg_controller.ino.
+
+The Arduino UNO bridge was the single-leg bringup path. The robot now runs
+Pi 5 + U2D2 with `DynamixelBackend`, which is the only hardware backend a
+`--backend` string can reach (see quadruped.backends.BACKEND_CHOICES). This
+module and firmware/ stay on disk for the old UNO rig; nothing in the control
+loop imports them, and they get no new features. It also cannot do feedback
+control: read_joint_state() returns empty dicts because the firmware has no
+query command.
 
 Wire format: ``q,<q0>,<q1>,...,<q[N-1]>\\n`` (radians) where N = number of
 joints in CONFIG.joints and the order is canonical YAML order (leg-major:

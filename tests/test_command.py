@@ -194,6 +194,25 @@ def test_estop_zeroes_immediately_and_latches_until_a_move_key():
     assert not s.estopped, "driving again should clear the e-stop"
 
 
+def test_torque_kill_needs_an_estop_first():
+    """Releasing torque drops the robot, so it takes x then z — never one key."""
+    s = CommandShaper()
+    s.key("z")
+    assert not s.torque_kill, "z alone must not cut torque"
+    s.key("x")
+    s.key("z")
+    assert s.torque_kill
+
+
+def test_pitch_key_is_not_the_torque_kill():
+    """`k` is pitch-down and always has been; the release key must not shadow it."""
+    s = CommandShaper()
+    s.key("x")
+    s.key("k")
+    assert not s.torque_kill
+    assert s.axes["pitch"].setpoint > 0.0
+
+
 @pytest.mark.parametrize("key", ["\x03", "\x1b", "ESC"])
 def test_quit_keys_report_quit(key):
     assert CommandShaper(default_axes()).key(key) is False

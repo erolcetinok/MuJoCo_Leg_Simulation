@@ -24,12 +24,15 @@ def add_backend_args(parser: argparse.ArgumentParser, *, default: str = "sim") -
         default=default,
         help="Which backend to drive (default: %(default)s). "
              "sim = MuJoCo (kinematic); dxl = U2D2 + DYNAMIXEL SDK; "
-             "hw = Arduino/SoftwareSerial; mirror = sim + hw together.",
+             "mirror = sim + dxl together.",
     )
     parser.add_argument("--port", "-p", default=None,
-                        help="Serial port for hw/dxl/mirror backends (or SERIAL_PORT env var).")
+                        help="Serial port for dxl/mirror backends (or SERIAL_PORT env var).")
     parser.add_argument("--baud", "-b", type=int, default=None,
-                        help="Override host baud (defaults to configs/robot.yaml).")
+                        help="Override the DXL bus baud (defaults to configs/robot.yaml).")
+    parser.add_argument("--profile-velocity", type=int, default=None,
+                        help="Servo velocity cap for dxl/mirror (0 = uncapped, which the "
+                             "streaming gait needs; try 30 for a first cautious power-on).")
     parser.add_argument("--xml", default=None,
                         help="Override MJCF path (defaults to configs/robot.yaml).")
     parser.add_argument("--viewer", action="store_true",
@@ -44,7 +47,26 @@ def build_backend(args: argparse.Namespace) -> RobotBackend:
         baud=args.baud,
         xml=args.xml,
         viewer=args.viewer,
+        profile_velocity=getattr(args, "profile_velocity", None),
     )
+
+
+def install_signal_handlers() -> None:
+    """Turn SIGTERM/SIGHUP into KeyboardInterrupt so `with backend` still unwinds.
+
+    Without this, a systemd stop or a dropped SSH session kills the process
+    outright: disconnect() never runs, so the servos stay torqued holding their
+    last goal and a raw-mode terminal is never restored.
+    """
+    import signal
+
+    def _raise(signum, frame):
+        raise KeyboardInterrupt
+
+    for name in ("SIGTERM", "SIGHUP"):
+        sig = getattr(signal, name, None)
+        if sig is not None:
+            signal.signal(sig, _raise)
 
 
 def parse_three_floats(line: str) -> Optional[Tuple[float, float, float]]:

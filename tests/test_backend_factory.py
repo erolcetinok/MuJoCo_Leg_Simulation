@@ -25,13 +25,19 @@ from quadruped.cli_args import add_backend_args, build_backend
 EXPECTED = {
     "sim": MujocoBackend,
     "dxl": DynamixelBackend,
-    "hw": ArduinoBackend,
     "mirror": MirrorBackend,
 }
 
 
-def test_choices_are_exactly_the_documented_four():
+def test_choices_are_exactly_the_documented_three():
     assert set(BACKEND_CHOICES) == set(EXPECTED)
+
+
+def test_arduino_is_archived_not_selectable():
+    """The UNO bridge stays importable for the old rig, but no --backend string
+    reaches it: the U2D2 is the one supported hardware path."""
+    assert "hw" not in BACKEND_CHOICES
+    assert ArduinoBackend(port="/dev/null").port == "/dev/null"
 
 
 @pytest.mark.parametrize("kind", sorted(EXPECTED))
@@ -44,8 +50,42 @@ def test_mirror_fans_to_sim_and_hardware_with_hw_as_truth():
     b = make_backend("mirror", port="/dev/null")
     assert isinstance(b, MirrorBackend)
     kinds = [type(x) for x in b.backends]
-    assert kinds == [MujocoBackend, ArduinoBackend]
+    assert kinds == [MujocoBackend, DynamixelBackend]
     assert b._truth_idx == 1, "hardware must be the truth source, not the sim"
+
+
+@pytest.mark.parametrize("kind", ["dxl", "mirror"])
+def test_profile_velocity_reaches_the_servo_backend(kind):
+    """A cautious first power-on (--profile-velocity 30) must survive the factory."""
+    b = make_backend(kind, port="/dev/null", profile_velocity=30)
+    dxl = b.backends[1] if kind == "mirror" else b
+    assert dxl._profile_velocity == 30
+
+
+def test_profile_velocity_defaults_to_the_streaming_value():
+    assert make_backend("dxl", port="/dev/null")._profile_velocity == 0
+
+
+def test_mirror_fans_out_the_torque_kill():
+    """Inheriting the ABC no-op would make teleop's `z` silently do nothing here."""
+    class _Spy(MujocoBackend):
+        def __init__(self): self.torque = None
+        def set_torque_all(self, on): self.torque = on
+
+    spies = [_Spy(), _Spy()]
+    MirrorBackend(spies).set_torque_all(False)
+    assert [s.torque for s in spies] == [False, False]
+
+
+def test_mirror_health_comes_from_whichever_backend_has_one():
+    class _Silent(MujocoBackend):
+        def __init__(self): pass
+
+    class _Talker(MujocoBackend):
+        def __init__(self): pass
+        def health_check(self): return {"knee_FL": (0, 40)}
+
+    assert MirrorBackend([_Silent(), _Talker()]).health_check() == {"knee_FL": (0, 40)}
 
 
 def test_unknown_backend_names_the_valid_options():
@@ -67,7 +107,7 @@ def test_build_backend_prefers_explicit_port_over_env(monkeypatch):
     monkeypatch.setenv("SERIAL_PORT", "/dev/from-env")
     p = argparse.ArgumentParser()
     add_backend_args(p)
-    args = p.parse_args(["--backend", "hw", "--port", "/dev/explicit"])
+    args = p.parse_args(["--backend", "dxl", "--port", "/dev/explicit"])
     assert build_backend(args).port == "/dev/explicit"
 
 
@@ -75,5 +115,5 @@ def test_build_backend_falls_back_to_env_port(monkeypatch):
     monkeypatch.setenv("SERIAL_PORT", "/dev/from-env")
     p = argparse.ArgumentParser()
     add_backend_args(p)
-    args = p.parse_args(["--backend", "hw"])
+    args = p.parse_args(["--backend", "dxl"])
     assert build_backend(args).port == "/dev/from-env"

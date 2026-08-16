@@ -21,7 +21,7 @@ def main() -> int:
     parser.add_argument("q3", type=float, help="Knee angle (rad)")
     parser.add_argument("--leg", choices=CONFIG.legs, default="FL",
                         help="Leg to move (default FL). Other legs hold their cached pose.")
-    add_backend_args(parser, default="hw")
+    add_backend_args(parser, default="dxl")
     args = parser.parse_args()
 
     names = CONFIG.leg_joint_names(args.leg)

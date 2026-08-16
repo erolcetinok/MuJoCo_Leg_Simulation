@@ -56,6 +56,27 @@ def ask(prompt: str) -> str:
     return input(prompt).strip().lower()
 
 
+def verify_pose(backend, commanded: dict[str, float]) -> list:
+    """Command a pose, read it back, and report per-joint tracking error.
+
+    The check that calibration actually took: `direction` and `offset_deg` are
+    believed, not measured, until the servo reports the angle you asked for.
+    Returns [(name, commanded_deg, measured_deg, error_deg)] in the order given;
+    a joint the bus did not answer for comes back with measured/error None.
+    """
+    backend.set_joint_targets(commanded)
+    qpos, _ = backend.read_joint_state()
+    rows = []
+    for name, target in commanded.items():
+        measured = qpos.get(name)
+        if measured is None:
+            rows.append((name, math.degrees(target), None, None))
+        else:
+            rows.append((name, math.degrees(target), math.degrees(measured),
+                         math.degrees(measured - target)))
+    return rows
+
+
 def calibrate_joint(backend, joint, test_angle: float) -> tuple[int, float]:
     name = joint.name
     direction = joint.direction          # start from the current config guess

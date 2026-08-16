@@ -41,13 +41,13 @@ from quadruped.kinematics.fk import foot_position
 from quadruped.kinematics.ik import joint_angles
 
 
-def _angles_dict(x, y, z):
+def _angles_dict(leg, x, y, z):
     q = joint_angles(x, y, z)
-    return {name: float(v) for name, v in zip(CONFIG.joint_names, q)}, q
+    return {name: float(v) for name, v in zip(CONFIG.leg_joint_names(leg), q)}, q
 
 
-def _print_ik_check(label, x, y, z):
-    q_dict, q = _angles_dict(x, y, z)
+def _print_ik_check(leg, label, x, y, z):
+    q_dict, q = _angles_dict(leg, x, y, z)
     residual = float(np.linalg.norm(foot_position(*q) - np.array([x, y, z])))
     print(f"  {label:<10} ({x:7.2f}, {y:7.2f}, {z:7.2f}) -> "
           f"angles ({q[0]:+.3f}, {q[1]:+.3f}, {q[2]:+.3f})  residual {residual:.2e} mm")
@@ -72,6 +72,9 @@ def main() -> int:
                         help="Loop cycles until Ctrl+C (else one cycle then exit).")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print samples; do not open any backend.")
+    parser.add_argument("--leg", choices=CONFIG.legs, default="FL",
+                        help="Which leg to drive (default FL). Positions are leg-local, "
+                             "so the same --from/--to work on any leg.")
     add_backend_args(parser, default="sim")
     args = parser.parse_args()
 
@@ -86,10 +89,11 @@ def main() -> int:
     # touch back to lift over T_stance.
     body_velocity = ((touch[0] - lift[0]) / T_stance, (touch[1] - lift[1]) / T_stance)
 
-    print("IK pre-check:")
-    _print_ik_check("lift",  *lift)
-    _print_ik_check("apex",  (lift[0] + touch[0]) / 2, (lift[1] + touch[1]) / 2, apex_z)
-    _print_ik_check("touch", *touch)
+    print(f"IK pre-check (leg {args.leg}):")
+    _print_ik_check(args.leg, "lift",  *lift)
+    _print_ik_check(args.leg, "apex",
+                    (lift[0] + touch[0]) / 2, (lift[1] + touch[1]) / 2, apex_z)
+    _print_ik_check(args.leg, "touch", *touch)
 
     swing = SwingFootTrajectory(lift, touch, args.apex, T_swing, body_velocity)
     stance = StanceFootTrajectory(touch, T_stance, body_velocity)
@@ -116,7 +120,7 @@ def main() -> int:
     backend = build_backend(args)
     with backend:
         print(f"\nPre-pose -> {lift}, settling 1.0 s ...")
-        backend.set_joint_targets(_angles_dict(*lift)[0])
+        backend.set_joint_targets(_angles_dict(args.leg, *lift)[0])
         time.sleep(1.0)
 
         try:
@@ -132,7 +136,8 @@ def main() -> int:
                     for i in range(1, n):
                         s = i / (n - 1)
                         p = traj.position_at(s)
-                        backend.set_joint_targets(_angles_dict(float(p[0]), float(p[1]), float(p[2]))[0])
+                        backend.set_joint_targets(
+                            _angles_dict(args.leg, float(p[0]), float(p[1]), float(p[2]))[0])
                         deadline += dt
                         slack = deadline - time.perf_counter()
                         if slack > 0:

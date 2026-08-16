@@ -46,3 +46,16 @@ class MirrorBackend(RobotBackend):
             if qpos:
                 return qpos, qvel
         return {}, {}
+
+    def set_torque_all(self, on: bool) -> None:
+        # Must fan out: inheriting the ABC's no-op would make the teleop
+        # torque-kill silently do nothing on --backend mirror.
+        for b in self.backends:
+            b.set_torque_all(on)
+
+    def health_check(self) -> dict:
+        for b in self.backends:
+            health = b.health_check()
+            if health:
+                return health
+        return {}

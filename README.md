@@ -19,7 +19,7 @@ four-legged robot has not been assembled yet — that's the next job.
 ```
 configs/robot.yaml      single source of truth (joints, limits, offsets, bauds)
 description/            MJCF + STL meshes (MuJoCo-Menagerie convention)
-firmware/               Arduino sketches; robot_config.h is generated
+firmware/               Arduino sketches (ARCHIVED); robot_config.h is generated
 scripts/                every command you run, plus codegen
 src/quadruped/          the importable library
   ├── config.py         generated dataclass mirroring robot.yaml
@@ -61,15 +61,13 @@ mjpython scripts/view.py --model quad
 mjpython scripts/ik_demo.py --path step
 python scripts/gait_demo.py --gait trot --vx 40
 
-# Hardware — U2D2 path (primary)
-export SERIAL_PORT=/dev/cu.usbserial-XXXX
-python scripts/calibrate.py --leg FR                    # guided sign/offset wizard
-python scripts/jog_cart.py --leg FL                     # Cartesian jog + foot force
-python scripts/gait_demo.py --backend dxl --rate 33
-
-# Hardware — Arduino UNO bridge (fallback; see firmware/README.md)
-python scripts/jog.py --backend hw
-python scripts/swing_hw.py --loop
+# Hardware — U2D2, in bringup order (see docs/hardware_bringup.md)
+export SERIAL_PORT=/dev/ttyUSB0
+python scripts/dxl_scan.py                              # do all 12 enumerate?
+python scripts/calibrate.py --leg FL                    # guided sign/offset wizard
+python scripts/calibrate.py --verify --leg FL           # did it take?
+python scripts/swing_hw.py --leg FL --backend dxl --rate 33 --loop
+python scripts/gait_demo.py --backend mirror --rate 33
 
 # Sim + hardware in lockstep
 mjpython scripts/send_foot.py 20 -175 -50 --backend mirror --viewer
@@ -77,7 +75,7 @@ mjpython scripts/send_foot.py 20 -175 -50 --backend mirror --viewer
 # Slider GUI (Dear PyGui + embedded MuJoCo render)
 python scripts/gui.py                                   # sim, embedded viewer
 python scripts/gui.py --backend mirror                  # sim + leg together
-python scripts/gui.py --backend hw --viewer none        # sliders only
+python scripts/gui.py --backend dxl --viewer none       # sliders only
 ```
 
 > **GUI viewer modes:** `embedded` (default) renders MuJoCo offscreen into a Dear
@@ -94,9 +92,12 @@ and nothing downstream branches on the choice.
 | `--backend` | Class | What it does |
 | --- | --- | --- |
 | `sim` | `MujocoBackend` | Writes joint angles straight to `data.qpos` and runs `mj_forward`. **Kinematic — physics is bypassed**, so it shows geometry and reach, not balance. |
-| `dxl` | `DynamixelBackend` | U2D2 + DYNAMIXEL SDK, direct USB→bus. Sync read/write, present current, `foot_force(leg)`. Written and unit-tested; **not yet run against a real bus.** |
-| `hw` | `ArduinoBackend` | Serial bridge to `leg_controller.ino` at 57600. Fire-and-forget: `SoftwareSerial` drops ~15% of host bytes under DXL load. |
-| `mirror` | `MirrorBackend` | Fans one command to sim + hardware together. |
+| `dxl` | `DynamixelBackend` | U2D2 + DYNAMIXEL SDK, direct USB→bus. Pings all 12 on connect and checks every SDK return code. Sync read/write, present current, `foot_force(leg)`, health status. Written and unit-tested; **not yet run against a real bus.** |
+| `mirror` | `MirrorBackend` | Fans one command to sim + the U2D2 together. |
+
+`ArduinoBackend` (the UNO/SoftwareSerial bridge that brought up the first leg) is
+archived: still importable, no longer reachable from a `--backend` string, and
+none of the safety machinery above applies to it. See `firmware/README.md`.
 
 ## Editing the robot configuration
 
@@ -126,11 +127,12 @@ pip install pre-commit && pre-commit install
 | `docs/INVERSE_KINEMATICS.md` | Full derivation of the closed-form solver, plus the Jacobian / DLS / foot-force math. |
 | `docs/hardware_bringup.md` | BOM and bringup checklist for the full quadruped. |
 | `docs/power_and_electronics.md` | Staged power chain, wiring diagrams, part choices. |
-| `firmware/README.md` | Arduino UNO bridge path (fallback), end to end. |
+| `firmware/README.md` | Arduino UNO bridge path (ARCHIVED), end to end. |
 
 ## Hardware
 
-The primary path is a Raspberry Pi 5 + U2D2 driving twelve XL430-W250 servos —
-see `docs/hardware_bringup.md` and `docs/power_and_electronics.md`. The Arduino
-UNO R3 + Dynamixel Shield bridge is kept as a fallback and documented in
-`firmware/README.md`.
+The hardware is a Raspberry Pi 5 + U2D2 driving twelve XL430-W250 servos — see
+`docs/hardware_bringup.md` for the BOM and the ordered bringup runbook, and
+`docs/power_and_electronics.md` for the power chain. That stack is final; all
+remaining work on this project is software. The Arduino UNO R3 + Dynamixel Shield
+bridge that brought up the first leg is archived in `firmware/README.md`.

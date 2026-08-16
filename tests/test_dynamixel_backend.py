@@ -68,16 +68,50 @@ class _FakePort:
 
 
 class _FakePacket:
-    def __init__(self, ver): self.writes = []
-    def write1ByteTxRx(self, port, mid, addr, val): self.writes.append((mid, addr, val)); return (0, 0)
-    def write4ByteTxRx(self, port, mid, addr, val): self.writes.append((mid, addr, val)); return (0, 0)
+    """Every servo answers unless it is in `silent`, and every write succeeds
+    unless its (addr) is in `write_fails`."""
+
+    silent: set = set()
+    write_fails: set = set()
+    reads: dict = {}
+
+    def __init__(self, ver):
+        self.writes = []
+        self.pings = []
+
+    def _fail_for(self, mid, addr):
+        if mid in self.silent:
+            return (-1000, 0)          # COMM_TX_FAIL
+        if addr in self.write_fails:
+            return (0, 1)              # dxl_error: result ok, servo unhappy
+        return (0, 0)
+
+    def ping(self, port, mid):
+        self.pings.append(mid)
+        return (1060, -1000, 0) if mid in self.silent else (1060, 0, 0)
+
+    def write1ByteTxRx(self, port, mid, addr, val):
+        self.writes.append((mid, addr, val)); return self._fail_for(mid, addr)
+
+    def write4ByteTxRx(self, port, mid, addr, val):
+        self.writes.append((mid, addr, val)); return self._fail_for(mid, addr)
+
+    def read1ByteTxRx(self, port, mid, addr):
+        if mid in self.silent:
+            return (0, -1000, 0)
+        return (self.reads.get((mid, addr), 0), 0, 0)
+
+    def getTxRxResult(self, result): return f"comm {result}"
+    def getRxPacketError(self, error): return f"servo error {error}"
 
 
 class _FakeSyncWrite:
+    tx_result = 0
+
     def __init__(self, port, packet, addr, length): self.params = {}; self.tx = 0
     def clearParam(self): self.params = {}
     def addParam(self, mid, data): self.params[mid] = list(data); return True
-    def txPacket(self): self.tx += 1; return 0
+    def txPacket(self): self.tx += 1; return type(self).tx_result
 
 
 class _FakeSyncRead:
@@ -90,6 +124,11 @@ class _FakeSyncRead:
 
 @pytest.fixture
 def fake_sdk(monkeypatch):
+    # Class attributes carry the failure knobs, so reset them per test.
+    monkeypatch.setattr(_FakePacket, "silent", set())
+    monkeypatch.setattr(_FakePacket, "write_fails", set())
+    monkeypatch.setattr(_FakePacket, "reads", {})
+    monkeypatch.setattr(_FakeSyncWrite, "tx_result", 0)
     mod = types.ModuleType("dynamixel_sdk")
     mod.PortHandler = _FakePort
     mod.PacketHandler = _FakePacket
@@ -173,3 +212,96 @@ def test_disconnect_torques_off_and_closes(fake_sdk):
     # every servo got a torque-disable (addr 64, val 0) and the port closed
     assert all((j.motor_id, 64, 0) in b._packet.writes for j in CONFIG.joints)
     assert b._port is None
+
+
+# --- failure paths: the whole point of the hardening pass -------------------
+
+def test_connect_pings_before_configuring(fake_sdk):
+    b = DynamixelBackend(port="/dev/fake")
+    b.connect()
+    assert b._packet.pings == [j.motor_id for j in CONFIG.joints]
+
+
+def test_connect_raises_naming_the_silent_ids(fake_sdk, monkeypatch):
+    monkeypatch.setattr(_FakePacket, "silent", {5, 11})
+    b = DynamixelBackend(port="/dev/fake")
+    with pytest.raises(ConnectionError) as exc:
+        b.connect()
+    assert "5" in str(exc.value) and "11" in str(exc.value)
+    assert b._port is None                       # port released, not leaked
+
+
+def test_connect_raises_on_a_rejected_configuration_write(fake_sdk, monkeypatch):
+    monkeypatch.setattr(_FakePacket, "write_fails", {11})   # operating mode
+    b = DynamixelBackend(port="/dev/fake")
+    with pytest.raises(ConnectionError) as exc:
+        b.connect()
+    assert "position mode" in str(exc.value)
+
+
+def test_isolated_syncwrite_failure_is_tolerated(fake_sdk, monkeypatch):
+    b = DynamixelBackend(port="/dev/fake")
+    b.connect()
+    monkeypatch.setattr(_FakeSyncWrite, "tx_result", -1000)
+    b.set_joint_targets({"shoulder_FL": 0.0})    # one dropped packet: keep going
+    monkeypatch.setattr(_FakeSyncWrite, "tx_result", 0)
+    b.set_joint_targets({"shoulder_FL": 0.0})    # recovered, counter resets
+    monkeypatch.setattr(_FakeSyncWrite, "tx_result", -1000)
+    b.set_joint_targets({"shoulder_FL": 0.0})
+    b.set_joint_targets({"shoulder_FL": 0.0})
+    with pytest.raises(ConnectionError):          # third in a row: the bus is gone
+        b.set_joint_targets({"shoulder_FL": 0.0})
+
+
+def test_read_joint_state_skips_motors_that_did_not_answer(fake_sdk):
+    b = DynamixelBackend(port="/dev/fake")
+    b.connect()
+    mid = CONFIG.joint("wing_FL").motor_id
+    b._sync_read.data = {mid: {(132, 4): 2048, (128, 4): 0, (126, 2): 0}}
+    qpos, qvel = b.read_joint_state()
+    assert set(qpos) == {"wing_FL"} and set(qvel) == {"wing_FL"}
+
+
+def test_foot_force_raises_on_an_incomplete_read(fake_sdk):
+    b = DynamixelBackend(port="/dev/fake")
+    b.connect()
+    b._sync_read.data = {CONFIG.joint("shoulder_FL").motor_id:
+                         {(132, 4): 2048, (128, 4): 0, (126, 2): 0}}
+    with pytest.raises(RuntimeError, match="incomplete bus read"):
+        b.foot_force("FL")
+
+
+def test_set_torque_all_writes_every_servo(fake_sdk):
+    b = DynamixelBackend(port="/dev/fake")
+    b.connect()
+    b._packet.writes.clear()
+    b.set_torque_all(False)
+    assert all((j.motor_id, 64, 0) in b._packet.writes for j in CONFIG.joints)
+
+
+def test_set_profile_velocity_retunes_every_servo(fake_sdk):
+    b = DynamixelBackend(port="/dev/fake")
+    b.connect()
+    b._packet.writes.clear()
+    b.set_profile_velocity(30)
+    assert all((j.motor_id, 112, 30) in b._packet.writes for j in CONFIG.joints)
+    assert b._profile_velocity == 30
+
+
+def test_health_check_reports_faults_and_temperature(fake_sdk, monkeypatch):
+    mid = CONFIG.joint("knee_BR").motor_id
+    monkeypatch.setattr(_FakePacket, "reads", {(mid, 70): 0x20, (mid, 146): 61})
+    b = DynamixelBackend(port="/dev/fake")
+    b.connect()
+    health = b.health_check()
+    assert len(health) == 12
+    assert health["knee_BR"] == (0x20, 61)       # overload bit latched, 61 C
+
+
+def test_ticks_are_clamped_to_a_single_turn():
+    """A miscalibrated offset must not wrap around the servo's 0..4095 range."""
+    j = types.SimpleNamespace(direction=1, offset_deg=350.0, limit_rad=(-1.57, 1.57))
+    b = DynamixelBackend(port="x")
+    assert b._rad_to_ticks(j, 1.5) == 4095
+    j_low = types.SimpleNamespace(direction=1, offset_deg=10.0, limit_rad=(-1.57, 1.57))
+    assert b._rad_to_ticks(j_low, -1.5) == 0

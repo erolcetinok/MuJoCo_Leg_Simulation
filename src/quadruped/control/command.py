@@ -139,6 +139,7 @@ class CommandShaper:
         self.decay_after = decay_after
         self.gait = gait
         self.estopped = False
+        self.torque_kill = False
         self._idle = 0.0
 
     @property
@@ -211,10 +212,27 @@ class CommandShaper:
             axis.zero()
 
     def estop(self) -> None:
-        """Drop every command to zero immediately, ignoring slew limits."""
+        """Drop every command to zero immediately, ignoring slew limits.
+
+        The caller is expected to also stop advancing the gait and re-send the
+        last joint targets — zeroing the body command alone leaves the robot
+        marching in place, since a stopped gait still lifts each foot 30 mm.
+        """
         for axis in self.axes.values():
             axis.hard_zero()
         self.estopped = True
+
+    def request_torque_kill(self) -> bool:
+        """Ask for torque to be cut. Only honoured from an e-stopped state.
+
+        Releasing torque drops the robot on its belly, so it takes two
+        deliberate keys (`x` then `z`) rather than one mistyped letter.
+        Returns whether the request was accepted.
+        """
+        if not self.estopped:
+            return False
+        self.torque_kill = True
+        return True
 
 
 # Key -> (axis, sign). One key pair per degree of freedom, nothing else.
@@ -301,6 +319,8 @@ def apply_key(shaper: CommandShaper, k: str) -> bool:
         shaper.zero_all()
     elif k in ("x", "X"):
         shaper.estop()
+    elif k in ("z", "Z"):
+        shaper.request_torque_kill()
     elif k in _STEP_KEYS:
         shaper.adjust_step(_STEP_KEYS[k])
     elif k in _SLEW_KEYS:

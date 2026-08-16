@@ -38,6 +38,21 @@ class RobotBackend(ABC):
         drives sim and hardware, and the sim just shows more of it.
         """
 
+    def set_torque_all(self, on: bool) -> None:
+        """Enable/disable actuator torque on every joint. No-op where meaningless.
+
+        Same rationale as set_base_pose: the teleop torque-kill runs on any
+        backend, and in sim it simply does nothing.
+        """
+
+    def health_check(self) -> dict:
+        """{joint_name: (hardware_error_byte, temperature_C)} where available.
+
+        Empty by default — a backend with no health channel reports nothing
+        rather than forcing callers to guard on backend type.
+        """
+        return {}
+
     def __enter__(self):
         self.connect()
         return self

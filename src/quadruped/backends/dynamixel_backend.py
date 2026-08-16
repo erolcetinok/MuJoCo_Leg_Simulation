@@ -24,13 +24,15 @@ from quadruped.config import CONFIG
 from quadruped.kinematics.jacobian import foot_force as _foot_force
 
 # --- XL430 / Protocol 2.0 control table (addr, length in bytes) -------------
-ADDR_TORQUE_ENABLE = 64
 ADDR_OPERATING_MODE = 11
+ADDR_TORQUE_ENABLE = 64
+ADDR_HARDWARE_ERROR = 70
 ADDR_PROFILE_VELOCITY = 112
 ADDR_GOAL_POSITION = 116
 ADDR_PRESENT_CURRENT = 126   # start of the contiguous read block
 ADDR_PRESENT_VELOCITY = 128
 ADDR_PRESENT_POSITION = 132
+ADDR_PRESENT_TEMPERATURE = 146
 
 LEN_GOAL_POSITION = 4
 LEN_PRESENT_BLOCK = 10       # current(2) + velocity(4) + position(4), contiguous
@@ -38,6 +40,11 @@ LEN_PRESENT_BLOCK = 10       # current(2) + velocity(4) + position(4), contiguou
 OP_MODE_POSITION = 3
 PROTOCOL_VERSION = 2.0
 TICKS_PER_REV = 4096
+COMM_SUCCESS = 0
+
+# One dropped syncWrite mid-gait is normal bus noise; a run of them means the
+# bus is gone and continuing would leave the legs chasing a stale goal.
+MAX_CONSECUTIVE_WRITE_FAILURES = 3
 
 # XL430 unit conversions (ROBOTIS e-Manual control table)
 VELOCITY_UNIT_RPM = 0.229    # present-velocity LSB → rev/min
@@ -83,6 +90,7 @@ class DynamixelBackend(RobotBackend):
         # Cached targets so callers can update one leg at a time (subset writes).
         self._targets: dict[str, float] = {j.name: 0.0 for j in self._joints}
         self._last_current: dict[str, float] = {}
+        self._write_failures = 0
 
     # --- radian <-> tick conversion (mirrors leg_controller.ino exactly) -----
 
@@ -90,7 +98,11 @@ class DynamixelBackend(RobotBackend):
         lo, hi = joint.limit_rad
         q = min(max(q, lo), hi)                       # clamp, like the firmware
         deg = joint.direction * math.degrees(q) + joint.offset_deg
-        return int(round(deg * TICKS_PER_REV / 360.0))
+        ticks = int(round(deg * TICKS_PER_REV / 360.0))
+        # Second clamp on the tick, matching calibration.goal_ticks: a
+        # miscalibrated offset can push a within-limits angle outside the
+        # servo's single turn, and the SDK would happily send the wrap-around.
+        return min(max(ticks, 0), TICKS_PER_REV - 1)
 
     def _ticks_to_rad(self, joint, ticks: int) -> float:
         deg = ticks * 360.0 / TICKS_PER_REV
@@ -101,6 +113,30 @@ class DynamixelBackend(RobotBackend):
         """Pack a 32-bit int little-endian for GroupSyncWrite."""
         value &= 0xFFFFFFFF
         return [value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF, (value >> 24) & 0xFF]
+
+    # --- bus error handling -------------------------------------------------
+
+    def _check(self, result: int, error: int, what: str) -> None:
+        """Turn an SDK (comm_result, dxl_error) pair into an exception.
+
+        The SDK reports failure in return values, never by raising. Ignoring
+        them is how a wrong ID / wrong baud / unpowered hub turns into a
+        silently successful connect and a leg that just doesn't move.
+        """
+        if result != COMM_SUCCESS:
+            raise ConnectionError(f"{what}: {self._packet.getTxRxResult(result)}")
+        if error != 0:
+            raise ConnectionError(f"{what}: {self._packet.getRxPacketError(error)}")
+
+    def ping_all(self) -> dict:
+        """Ping every configured servo -> {motor_id: model_number}; silent IDs absent."""
+        assert self._packet is not None, "call connect() first"
+        found = {}
+        for j in self._joints:
+            model, result, error = self._packet.ping(self._port, j.motor_id)
+            if result == COMM_SUCCESS and error == 0:
+                found[j.motor_id] = model
+        return found
 
     # --- lifecycle ----------------------------------------------------------
 
@@ -121,6 +157,19 @@ class DynamixelBackend(RobotBackend):
         if not self._port.setBaudRate(self._baud):
             raise ConnectionError(f"could not set baud {self._baud} on {self._port_name!r}")
 
+        # Enumerate before configuring anything. syncWrite is broadcast-style
+        # and unacknowledged, so a missing servo is invisible once we start
+        # streaming — this is the only point where absence is detectable.
+        found = self.ping_all()
+        missing = [j.motor_id for j in self._joints if j.motor_id not in found]
+        if missing:
+            self._port.closePort()
+            self._port = None
+            raise ConnectionError(
+                f"no response from servo IDs {missing} on {self._port_name} "
+                f"at {self._baud} baud; run  python scripts/dxl_scan.py --sweep-baud"
+            )
+
         self._sync_write = GroupSyncWrite(
             self._port, self._packet, ADDR_GOAL_POSITION, LEN_GOAL_POSITION)
         self._sync_read = GroupSyncRead(
@@ -130,12 +179,22 @@ class DynamixelBackend(RobotBackend):
 
         # Configure each servo: torque off → position mode + profile velocity →
         # torque on. Torque-on holds present position (no jump) until the first
-        # goal is written.
+        # goal is written. Operating mode is only writable with torque off, so
+        # the order matters.
         for j in self._joints:
-            self._packet.write1ByteTxRx(self._port, j.motor_id, ADDR_TORQUE_ENABLE, 0)
-            self._packet.write1ByteTxRx(self._port, j.motor_id, ADDR_OPERATING_MODE, OP_MODE_POSITION)
-            self._packet.write4ByteTxRx(self._port, j.motor_id, ADDR_PROFILE_VELOCITY, self._profile_velocity)
-            self._packet.write1ByteTxRx(self._port, j.motor_id, ADDR_TORQUE_ENABLE, 1)
+            self._check(*self._packet.write1ByteTxRx(
+                self._port, j.motor_id, ADDR_TORQUE_ENABLE, 0),
+                f"torque off on ID {j.motor_id}")
+            self._check(*self._packet.write1ByteTxRx(
+                self._port, j.motor_id, ADDR_OPERATING_MODE, OP_MODE_POSITION),
+                f"position mode on ID {j.motor_id}")
+            self._check(*self._packet.write4ByteTxRx(
+                self._port, j.motor_id, ADDR_PROFILE_VELOCITY, self._profile_velocity),
+                f"profile velocity on ID {j.motor_id}")
+            self._check(*self._packet.write1ByteTxRx(
+                self._port, j.motor_id, ADDR_TORQUE_ENABLE, 1),
+                f"torque on on ID {j.motor_id}")
+        self._write_failures = 0
 
     def disconnect(self) -> None:
         if self._port is not None:
@@ -165,7 +224,15 @@ class DynamixelBackend(RobotBackend):
         for j in self._joints:
             ticks = self._rad_to_ticks(j, self._targets[j.name])
             self._sync_write.addParam(j.motor_id, self._le4(ticks))
-        self._sync_write.txPacket()
+        if self._sync_write.txPacket() != COMM_SUCCESS:
+            self._write_failures += 1
+            if self._write_failures >= MAX_CONSECUTIVE_WRITE_FAILURES:
+                raise ConnectionError(
+                    f"{self._write_failures} consecutive syncWrite failures on "
+                    f"{self._port_name}; the bus is down"
+                )
+        else:
+            self._write_failures = 0
 
     def write_goal_ticks(self, name: str, ticks: int) -> None:
         """Move ONE servo to a raw tick position, bypassing the rad/offset math.
@@ -180,6 +247,27 @@ class DynamixelBackend(RobotBackend):
         assert self._packet is not None, "call connect() first"
         j = self._by_name[name]
         self._packet.write1ByteTxRx(self._port, j.motor_id, ADDR_TORQUE_ENABLE, 1 if on else 0)
+
+    def set_torque_all(self, on: bool) -> None:
+        """Enable/disable torque on all twelve. Off = the robot goes limp."""
+        assert self._packet is not None, "call connect() first"
+        for j in self._joints:
+            self.set_torque(j.name, on)
+
+    def set_profile_velocity(self, value: int) -> None:
+        """Rewrite the trapezoidal velocity cap on all twelve, live.
+
+        0 = uncapped, which the streaming gait needs (each goal is already close
+        to the last). A small value (30) makes a large single move gentle, which
+        is what the stand-up ramp and calibration want. Torque stays on, so this
+        is safe to call between phases of a run.
+        """
+        assert self._packet is not None, "call connect() first"
+        for j in self._joints:
+            self._check(*self._packet.write4ByteTxRx(
+                self._port, j.motor_id, ADDR_PROFILE_VELOCITY, int(value)),
+                f"profile velocity on ID {j.motor_id}")
+        self._profile_velocity = int(value)
 
     # --- feedback -----------------------------------------------------------
 
@@ -203,6 +291,28 @@ class DynamixelBackend(RobotBackend):
             cur[j.name] = j.direction * cur_raw * CURRENT_UNIT_MA / 1000.0  # amps
         self._last_current = cur
         return qpos, qvel
+
+    def health_check(self) -> dict:
+        """{joint: (hardware_error_byte, temperature_C)} for every servo that answers.
+
+        Separate single reads rather than part of the sync-read block: addr 70
+        and 146 are not contiguous with the 126..135 present block, and this only
+        wants ~1 Hz. A non-zero error byte means the servo has latched a fault
+        (overload / overheat / voltage) and has shut its own torque off.
+        """
+        assert self._packet is not None, "call connect() first"
+        out: dict = {}
+        for j in self._joints:
+            err, result, error = self._packet.read1ByteTxRx(
+                self._port, j.motor_id, ADDR_HARDWARE_ERROR)
+            if result != COMM_SUCCESS or error != 0:
+                continue
+            temp, result, error = self._packet.read1ByteTxRx(
+                self._port, j.motor_id, ADDR_PRESENT_TEMPERATURE)
+            if result != COMM_SUCCESS or error != 0:
+                continue
+            out[j.name] = (err, temp)
+        return out
 
     def present_current(self) -> dict[str, float]:
         """Per-joint current (amps) from the last read_joint_state(). A spike at

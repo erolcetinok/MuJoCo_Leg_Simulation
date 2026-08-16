@@ -1,14 +1,14 @@
-# Arduino UNO bridge — hardware setup
+# Arduino UNO bridge — hardware setup (ARCHIVED)
 
-> **Which path am I on?** This is the **fallback**. The primary hardware path is
-> a Raspberry Pi 5 + U2D2 driving the servos directly over the DYNAMIXEL SDK —
-> see `docs/hardware_bringup.md` for the BOM and bringup order, and
-> `docs/power_and_electronics.md` for the power chain. The U2D2 path needs no
-> Arduino, no firmware flashing, and gives you state readback for free
-> (`--backend dxl`).
+> **This path is retired.** The robot runs Raspberry Pi 5 + U2D2, driving the
+> servos directly over the DYNAMIXEL SDK — see `docs/hardware_bringup.md` for the
+> BOM and bringup order, and `docs/power_and_electronics.md` for the power chain.
+> `--backend hw` no longer exists; `dxl` and `mirror` are the hardware choices.
 >
-> Keep this document for the case where the U2D2 disappoints: the UNO bridge
-> works, it's fully understood, and it's what the first leg was brought up on.
+> Everything here still works and is what the first leg was brought up on, so it
+> is kept for the old UNO rig. It gets no new features, and the safety work added
+> for the U2D2 path (ping-on-connect, stand-up ramp, e-stop freeze, torque
+> release, health monitoring) is **not** present on this path.
 
 Start-to-finish bring-up for the Arduino path: up to twelve daisy-chained
 Dynamixels driven by an Arduino UNO R3, commanded over USB from your Mac.

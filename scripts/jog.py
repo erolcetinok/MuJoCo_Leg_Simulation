@@ -19,7 +19,7 @@ def main() -> int:
     parser.add_argument("--leg", choices=CONFIG.legs, default="FL",
                         help="Leg to jog (default FL). The three angles map to that "
                              "leg's shoulder, wing, knee; other legs hold their cached pose.")
-    add_backend_args(parser, default="hw")
+    add_backend_args(parser, default="dxl")
     args = parser.parse_args()
 
     names = CONFIG.leg_joint_names(args.leg)

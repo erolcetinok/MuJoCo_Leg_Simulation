@@ -42,11 +42,37 @@ import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent.parent / "src"))
 
 from quadruped.backends import MujocoBackend
-from quadruped.cli_args import add_backend_args, build_backend
+from quadruped.cli_args import add_backend_args, build_backend, install_signal_handlers
 from quadruped.config import CONFIG
 from quadruped.control.body import BodyPose
 from quadruped.control.locomotion import LocomotionController
+from quadruped.control.sequencer import ramp_to, stance_pose
 from quadruped.sim.env import leg_poses, model_path
+
+RAMP_PROFILE_VELOCITY = 30
+GAIT_PROFILE_VELOCITY = 0
+
+
+def _set_profile_velocity(backend, value: int) -> None:
+    """Retune the servo velocity cap where the backend has one; ignore where not."""
+    for b in getattr(backend, "backends", [backend]):
+        setter = getattr(b, "set_profile_velocity", None)
+        if setter is not None:
+            setter(value)
+
+
+def _settle(backend, controller, args) -> None:
+    """Return to the symmetric stance pose before disconnect() cuts torque.
+
+    Not a sit-down — there is no crouch authority in the command envelope (see
+    control/sequencer.py). It just makes the drop happen from a known,
+    four-feet-planted pose instead of mid-swing.
+    """
+    try:
+        _set_profile_velocity(backend, RAMP_PROFILE_VELOCITY)
+        ramp_to(backend, stance_pose(controller), duration=1.0, rate=args.rate)
+    except Exception as exc:
+        print(f"settle skipped: {exc}", file=sys.stderr)
 
 
 def _any_viewer_closed(backend) -> bool:
@@ -82,9 +108,14 @@ def main() -> int:
                         help="Ride-height offset from nominal stance (mm, + = taller)")
     parser.add_argument("--duration", type=float, default=None,
                         help="Stop after this many seconds (default: run until Ctrl+C / viewer close)")
+    parser.add_argument("--stand-time", type=float, default=2.0,
+                        help="Seconds to ramp from the present pose into stance (default 2).")
+    parser.add_argument("--yes", "-y", action="store_true",
+                        help="Skip the confirmation prompt after the stand-up ramp.")
     add_backend_args(parser, default="sim")
     args = parser.parse_args()
 
+    install_signal_handlers()
     dt = 1.0 / args.rate
 
     # MJCF is loaded once just to extract per-leg shoulder pose (the geometric
@@ -113,6 +144,20 @@ def main() -> int:
 
     backend = build_backend(args)
     with backend:
+        # Stand up first: without this, tick 0 commands a full-amplitude gait
+        # pose from wherever the legs physically are, at max servo speed.
+        _set_profile_velocity(backend, RAMP_PROFILE_VELOCITY)
+        print(f"standing up over {args.stand_time:.1f}s — keep clear.")
+        ramp_to(backend, stance_pose(controller), duration=args.stand_time, rate=args.rate)
+        if not args.yes and sys.stdin.isatty():
+            try:
+                input("in stance. press ENTER to start walking, Ctrl-C to quit: ")
+            except (EOFError, KeyboardInterrupt):
+                print("\nStopped before the gait started.")
+                _settle(backend, controller, args)
+                return 0
+        _set_profile_velocity(backend, GAIT_PROFILE_VELOCITY)
+
         t0 = time.perf_counter()
         deadline = t0
         try:
@@ -139,6 +184,9 @@ def main() -> int:
                     deadline = time.perf_counter()
         except KeyboardInterrupt:
             print("\nStopped by user.")
+        except Exception as exc:
+            print(f"\ncontrol loop failed: {exc}", file=sys.stderr)
+        _settle(backend, controller, args)
     return 0
 
 
