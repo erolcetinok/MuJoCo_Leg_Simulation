@@ -305,3 +305,71 @@ def test_ticks_are_clamped_to_a_single_turn():
     assert b._rad_to_ticks(j, 1.5) == 4095
     j_low = types.SimpleNamespace(direction=1, offset_deg=10.0, limit_rad=(-1.57, 1.57))
     assert b._rad_to_ticks(j_low, -1.5) == 0
+
+
+# --- leg subsets: bringup on a partly assembled robot -----------------------
+
+def test_legs_subset_restricts_the_driven_joints():
+    b = DynamixelBackend(port="x", legs=["FL"])
+    assert [j.name for j in b._joints] == list(CONFIG.leg_joint_names("FL"))
+    assert [j.motor_id for j in b._joints] == [1, 2, 3]
+
+
+def test_legs_default_is_still_all_twelve():
+    b = DynamixelBackend(port="x")
+    assert [j.name for j in b._joints] == [j.name for j in CONFIG.joints]
+
+
+@pytest.mark.parametrize("bad", [["XX"], ["FL", "nope"], []])
+def test_bad_legs_rejected(bad):
+    with pytest.raises(ValueError):
+        DynamixelBackend(port="x", legs=bad)
+
+
+def test_subset_connect_ignores_servos_that_are_not_bolted_on(fake_sdk, monkeypatch):
+    """The whole point: nine silent IDs must not block a one-leg bringup."""
+    monkeypatch.setattr(_FakePacket, "silent", set(range(4, 13)))
+    b = DynamixelBackend(port="/dev/fake", legs=["FL"])
+    b.connect()                                   # would raise without legs=
+    assert b._packet.pings == [1, 2, 3]
+    assert b._sync_read.ids == [1, 2, 3]
+
+
+def test_subset_connect_still_catches_a_silent_attached_servo(fake_sdk, monkeypatch):
+    monkeypatch.setattr(_FakePacket, "silent", {2} | set(range(4, 13)))
+    b = DynamixelBackend(port="/dev/fake", legs=["FL"])
+    with pytest.raises(ConnectionError) as exc:
+        b.connect()
+    assert "2" in str(exc.value)
+
+
+def test_subset_drops_targets_for_legs_it_does_not_drive(fake_sdk):
+    """An unmodified 12-joint gait command must still drive the attached leg."""
+    b = DynamixelBackend(port="/dev/fake", legs=["FL"])
+    b.connect()
+    b.set_joint_targets({j.name: 0.0 for j in CONFIG.joints})
+    assert sorted(b._sync_write.params) == [1, 2, 3]
+
+
+def test_subset_still_rejects_a_joint_name_that_does_not_exist(fake_sdk):
+    b = DynamixelBackend(port="/dev/fake", legs=["FL"])
+    b.connect()
+    with pytest.raises(KeyError):
+        b.set_joint_targets({"elbow_FL": 0.0})
+
+
+def test_subset_foot_force_rejects_an_undriven_leg(fake_sdk):
+    b = DynamixelBackend(port="/dev/fake", legs=["FL"])
+    b.connect()
+    with pytest.raises(ValueError) as exc:
+        b.foot_force("BR")
+    assert "FL" in str(exc.value)
+
+
+def test_subset_disconnect_only_torques_off_what_it_drives(fake_sdk, monkeypatch):
+    monkeypatch.setattr(_FakePacket, "silent", set(range(4, 13)))
+    b = DynamixelBackend(port="/dev/fake", legs=["FL"])
+    b.connect()
+    b._packet.writes.clear()
+    b.disconnect()
+    assert {mid for (mid, addr, val) in b._packet.writes if addr == 64 and val == 0} == {1, 2, 3}

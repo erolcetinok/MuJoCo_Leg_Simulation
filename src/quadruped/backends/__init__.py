@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Sequence
 
 from quadruped.backends.base import RobotBackend
 from quadruped.backends.mujoco_backend import MujocoBackend
@@ -20,6 +20,7 @@ def make_backend(
     xml: Optional[str] = None,
     viewer: bool = False,
     profile_velocity: Optional[int] = None,
+    legs: Optional[Sequence[str]] = None,
 ) -> RobotBackend:
     """Build an unconnected backend by name. Caller handles connect/disconnect.
 
@@ -29,6 +30,8 @@ def make_backend(
     dxl_kwargs = {"port": port, "baud": baud}
     if profile_velocity is not None:
         dxl_kwargs["profile_velocity"] = profile_velocity
+    if legs is not None:
+        dxl_kwargs["legs"] = legs
     if kind == "sim":
         return MujocoBackend(xml=xml, use_viewer=viewer)
     if kind == "dxl":

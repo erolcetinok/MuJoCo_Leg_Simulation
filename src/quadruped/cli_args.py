@@ -15,6 +15,7 @@ import os
 from typing import Optional, Tuple
 
 from quadruped.backends import BACKEND_CHOICES, RobotBackend, make_backend
+from quadruped.config import CONFIG
 
 
 def add_backend_args(parser: argparse.ArgumentParser, *, default: str = "sim") -> None:
@@ -33,6 +34,11 @@ def add_backend_args(parser: argparse.ArgumentParser, *, default: str = "sim") -
     parser.add_argument("--profile-velocity", type=int, default=None,
                         help="Servo velocity cap for dxl/mirror (0 = uncapped, which the "
                              "streaming gait needs; try 30 for a first cautious power-on).")
+    parser.add_argument("--legs", nargs="+", default=None, choices=list(CONFIG.legs),
+                        metavar="LEG",
+                        help="Restrict the dxl bus to these legs (e.g. --legs FL) for "
+                             "bringup on a partly assembled robot. Default: all four, "
+                             "and connect() fails if any of the 12 servos is silent.")
     parser.add_argument("--xml", default=None,
                         help="Override MJCF path (defaults to configs/robot.yaml).")
     parser.add_argument("--viewer", action="store_true",
@@ -48,6 +54,7 @@ def build_backend(args: argparse.Namespace) -> RobotBackend:
         xml=args.xml,
         viewer=args.viewer,
         profile_velocity=getattr(args, "profile_velocity", None),
+        legs=getattr(args, "legs", None),
     )
 
 

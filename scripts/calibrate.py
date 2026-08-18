@@ -44,7 +44,7 @@ def run_verify(args) -> int:
     still *looks* fine in the config; it shows up here as a large residual.
     """
     joints = list(CONFIG.joints_for_leg(args.leg))
-    backend = DynamixelBackend(port=args.port, profile_velocity=30)
+    backend = DynamixelBackend(port=args.port, profile_velocity=30, legs=[args.leg])
     with backend:
         print(f"Commanding {args.leg} to its zero pose. Keep clear.")
         rows = verify_pose(backend, {j.name: 0.0 for j in joints})
@@ -82,7 +82,7 @@ def main() -> int:
     if args.verify:
         return run_verify(args)
 
-    backend = DynamixelBackend(port=args.port, profile_velocity=30)  # gentle moves
+    backend = DynamixelBackend(port=args.port, profile_velocity=30, legs=[args.leg])  # gentle moves
     results: dict[str, tuple[int, float]] = {}
     try:
         with backend:

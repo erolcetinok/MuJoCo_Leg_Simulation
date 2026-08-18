@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
 
@@ -59,12 +59,18 @@ def _signed(value: int, bits: int) -> int:
 
 
 class DynamixelBackend(RobotBackend):
-    """Drives the 12 servos over a U2D2 with the DYNAMIXEL SDK.
+    """Drives the servos over a U2D2 with the DYNAMIXEL SDK.
 
     profile_velocity: 0 = move to each goal as fast as possible (matches the
     firmware's streaming convention; required for smooth gait). For first
     power-on / calibration, pass a small value (e.g. 30) so the legs move
     gently instead of snapping to the commanded pose.
+
+    legs: restrict this backend to a subset of CONFIG.legs (e.g. ("FL",)).
+    connect() enumerates and refuses to start on any silent servo, which is
+    right for the finished robot and wrong during bringup, when only some legs
+    are bolted on. Naming the attached legs makes that gate cover exactly the
+    servos that are supposed to answer. Default None = all four, unchanged.
     """
 
     def __init__(
@@ -73,13 +79,27 @@ class DynamixelBackend(RobotBackend):
         *,
         baud: Optional[int] = None,
         profile_velocity: int = 0,
+        legs: Optional[Sequence[str]] = None,
     ) -> None:
         self._port_name = port or os.environ.get("SERIAL_PORT")
         self._baud = baud if baud is not None else CONFIG.serial.baud_dxl
         self._profile_velocity = profile_velocity
+        if legs is None:
+            self._legs = tuple(CONFIG.legs)
+        else:
+            self._legs = tuple(legs)
+            unknown = [leg for leg in self._legs if leg not in CONFIG.legs]
+            if unknown:
+                raise ValueError(
+                    f"unknown legs {unknown}; known: {list(CONFIG.legs)}")
+            if not self._legs:
+                raise ValueError("legs= cannot be empty")
         # Joint metadata in canonical YAML order (same order everything uses).
-        self._joints = list(CONFIG.joints)
+        self._joints = [j for j in CONFIG.joints if j.leg in self._legs]
         self._by_name = {j.name: j for j in self._joints}
+        # Every joint the robot could have, so a stray key is still an error
+        # even when this backend only drives some of them.
+        self._all_joint_names = {j.name for j in CONFIG.joints}
 
         # SDK handles, created in connect().
         self._port = None
@@ -210,16 +230,19 @@ class DynamixelBackend(RobotBackend):
 
     def set_joint_targets(self, q: dict[str, float]) -> None:
         assert self._sync_write is not None, "call connect() first (or use context manager)"
-        unknown = set(q) - set(self._targets)
+        unknown = set(q) - self._all_joint_names
         if unknown:
             raise KeyError(
                 f"DynamixelBackend.set_joint_targets got unknown joint keys "
-                f"{sorted(unknown)}; expected subset of {list(self._targets)}"
+                f"{sorted(unknown)}; expected subset of {sorted(self._all_joint_names)}"
             )
         # Merge over cache so callers can update a single leg; firmware-parity
-        # math turns radians → ticks; one GroupSyncWrite for all 12.
+        # math turns radians → ticks; one GroupSyncWrite for the attached legs.
+        # Keys for legs this backend does not drive are dropped, so an
+        # unmodified 12-joint gait command still works on a partly built robot.
         for name, value in q.items():
-            self._targets[name] = float(value)
+            if name in self._targets:
+                self._targets[name] = float(value)
         self._sync_write.clearParam()
         for j in self._joints:
             ticks = self._rad_to_ticks(j, self._targets[j.name])
@@ -249,7 +272,7 @@ class DynamixelBackend(RobotBackend):
         self._packet.write1ByteTxRx(self._port, j.motor_id, ADDR_TORQUE_ENABLE, 1 if on else 0)
 
     def set_torque_all(self, on: bool) -> None:
-        """Enable/disable torque on all twelve. Off = the robot goes limp."""
+        """Enable/disable torque on every driven servo. Off = the robot goes limp."""
         assert self._packet is not None, "call connect() first"
         for j in self._joints:
             self.set_torque(j.name, on)
@@ -332,6 +355,9 @@ class DynamixelBackend(RobotBackend):
         common under DXL contention). That is a clear, catchable signal so a
         gait/contact loop can skip the cycle rather than hit a bare KeyError.
         """
+        if leg not in self._legs:
+            raise ValueError(
+                f"foot_force({leg!r}): this backend drives {list(self._legs)}")
         names = CONFIG.leg_joint_names(leg)   # (shoulder, wing, knee) order
         qpos, _ = self.read_joint_state()
         cur = self.present_current()
